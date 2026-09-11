@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+
+{% block title %}{{ championship.name }}{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-start mb-4 gap-2">
+  <div>
+    <h1 class="h3 mb-1">
+      {{ championship.name }}
+      <span class="badge text-bg-secondary">{{ championship.get_status_display }}</span>
+      {% if championship.is_inaugural %}<span class="badge text-bg-info">Inaugurale</span>{% endif %}
+      {% if championship.rules_locked %}
+        <span class="badge text-bg-warning text-dark"><i class="bi bi-lock-fill"></i> Règles verrouillées</span>
+      {% endif %}
+    </h1>
+    <p class="text-muted mb-0">
+      Saison {{ championship.season }}{% if championship.series %} — {{ championship.series }}{% endif %}
+    </p>
+  </div>
+  <div class="d-flex flex-wrap gap-2">
+    <a href="{% url 'dashboard:admin' championship.slug %}" class="btn btn-primary btn-sm">
+      <i class="bi bi-speedometer2 me-1"></i>Dashboard
+    </a>
+    <a href="{% url 'championships:settings' championship.slug %}" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-gear me-1"></i>Paramètres
+    </a>
+    {% if not championship.rules_locked %}
+      <a href="{% url 'championships:lock_rules' championship.slug %}" class="btn btn-outline-warning btn-sm">
+        <i class="bi bi-lock me-1"></i>Verrouiller les règles
+      </a>
+    {% endif %}
+    <a href="{% url 'participations:list' championship.slug %}" class="btn btn-primary btn-sm">
+      <i class="bi bi-people me-1"></i>Inscriptions
+    </a>
+    <a href="{% url 'competition:list' championship.slug %}" class="btn btn-primary btn-sm">
+      <i class="bi bi-calendar3 me-1"></i>Calendrier
+    </a>
+    <a href="{% url 'rankings:standings' championship.slug %}" class="btn btn-primary btn-sm">
+      <i class="bi bi-trophy me-1"></i>Classement
+    </a>
+    <a href="{% url 'finals:list' championship.slug %}" class="btn btn-primary btn-sm">
+      <i class="bi bi-diagram-3 me-1"></i>Phases finales
+    </a>
+    <a href="{% url 'transitions:detail' championship.slug %}" class="btn btn-primary btn-sm">
+      <i class="bi bi-arrow-repeat me-1"></i>Saison suivante
+    </a>
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="col-12 col-lg-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h2 class="h5 mb-0">Divisions</h2>
+          <a href="{% url 'championships:division_create' championship.slug %}" class="btn btn-sm btn-outline-primary">
+            <i class="bi bi-plus-lg"></i> Ajouter
+          </a>
+        </div>
+        {% for division in divisions %}
+          <div class="mb-3 pb-2 {% if not forloop.last %}border-bottom{% endif %}">
+            <div class="d-flex justify-content-between align-items-center">
+              <span>
+                <span class="badge" style="background-color: {{ division.color|default:'#6c757d' }};">
+                  {{ division.name }}
+                </span>
+                <span class="text-muted small">niveau {{ division.level }}</span>
+              </span>
+              <span class="text-muted small">
+                {{ division.registered_count }}{% if division.capacity_max %} / {{ division.capacity_max }}{% endif %}
+                {% if division.is_unlimited %}(illimitée){% endif %}
+              </span>
+            </div>
+            {% if division.capacity_max %}
+              {% widthratio division.registered_count division.capacity_max 100 as pct %}
+              <div class="progress mt-1" style="height: 6px;">
+                <div class="progress-bar" role="progressbar" style="width: {{ pct }}%;"></div>
+              </div>
+            {% endif %}
+            <div class="mt-1">
+              <a href="{% url 'championships:division_update' championship.slug division.pk %}" class="small">Modifier</a>
+              <form method="post" action="{% url 'championships:division_delete' championship.slug division.pk %}" class="d-inline">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-link btn-sm text-danger p-0 ms-2"
+                        onclick="return confirm('Supprimer cette division ?');">Supprimer</button>
+              </form>
+            </div>
+          </div>
+        {% empty %}
+          <p class="text-muted mb-0">Aucune division. Ajoutez-en au moins une.</p>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-body">
+        <h2 class="h5 mb-3">Configuration</h2>
+        <dl class="row mb-3">
+          <dt class="col-7">Barème</dt>
+          <dd class="col-5">
+            V {{ championship.settings.points_win }} ·
+            N {{ championship.settings.points_draw }} ·
+            D {{ championship.settings.points_loss }}
+          </dd>
+          <dt class="col-7">Départage principal</dt>
+          <dd class="col-5">{{ championship.settings.get_primary_tiebreak_display }}</dd>
+          <dt class="col-7">Format</dt>
+          <dd class="col-5">{{ championship.settings.round_robin_legs }} confrontation(s)</dd>
+          <dt class="col-7">Saisie des résultats</dt>
+          <dd class="col-5">{{ championship.settings.get_result_entry_policy_display }}</dd>
+          <dt class="col-7">Phase finale</dt>
+          <dd class="col-5">
+            {% if championship.settings.finals_enabled %}
+              Oui ({{ championship.settings.finals_qualifiers_count }} qualifiés)
+            {% else %}
+              Non
+            {% endif %}
+          </dd>
+        </dl>
+        <h3 class="h6">Chaîne de départage</h3>
+        <ol class="mb-0">
+          {% for tb in tiebreaks %}<li>{{ tb.get_criterion_display }}</li>{% endfor %}
+        </ol>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h2 class="h5 mb-0">Promotions / relégations</h2>
+          <a href="{% url 'championships:movement_rule_create' championship.slug %}" class="btn btn-sm btn-outline-primary">
+            <i class="bi bi-plus-lg"></i> Ajouter une règle
+          </a>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead>
+              <tr><th>Type</th><th>De</th><th>Vers</th><th>Méthode</th><th>Valeur</th><th></th></tr>
+            </thead>
+            <tbody>
+              {% for rule in movement_rules %}
+              <tr>
+                <td>{{ rule.get_movement_type_display }}</td>
+                <td>{{ rule.source_division }}</td>
+                <td>{{ rule.target_division|default:"—" }}</td>
+                <td>{{ rule.get_method_display }}</td>
+                <td>
+                  {% if rule.value_n %}{{ rule.value_n }}
+                  {% elif rule.percentage %}{{ rule.percentage }}%
+                  {% elif rule.rank_min %}{{ rule.rank_min }}–{{ rule.rank_max }}
+                  {% endif %}
+                </td>
+                <td class="text-end">
+                  <form method="post" action="{% url 'championships:movement_rule_delete' championship.slug rule.pk %}">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-link btn-sm text-danger p-0"
+                            onclick="return confirm('Supprimer cette règle ?');">Supprimer</button>
+                  </form>
+                </td>
+              </tr>
+              {% empty %}
+              <tr><td colspan="6" class="text-center text-muted py-3">Aucune règle définie.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

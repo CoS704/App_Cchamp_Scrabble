@@ -43,6 +43,7 @@ class Championship(TimeStampedModel):
         null=True,
         blank=True,
         related_name="editions",
+        verbose_name="série",
     )
     name = models.CharField("nom", max_length=180)
     slug = models.SlugField(max_length=200, unique=True, blank=True)
@@ -77,6 +78,7 @@ class Championship(TimeStampedModel):
         null=True,
         blank=True,
         related_name="next_editions",
+        verbose_name="édition précédente",
     )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -158,11 +160,14 @@ class ChampionshipSettings(TimeStampedModel):
 
     # Saisie des résultats
     result_entry_policy = models.CharField(
+        "politique de saisie des résultats",
         max_length=16,
         choices=ResultEntryPolicy.choices,
         default=ResultEntryPolicy.WINNER_ONLY,
     )
-    result_confirmation_required = models.BooleanField(default=True)
+    result_confirmation_required = models.BooleanField(
+        "confirmation du résultat requise", default=True
+    )
     double_entry_auto_confirm = models.BooleanField(
         "confirmation automatique si deux saisies identiques", default=True
     )
@@ -176,7 +181,10 @@ class ChampionshipSettings(TimeStampedModel):
         "nombre de qualifiés par division", default=4
     )
     finals_format = models.CharField(
-        max_length=20, choices=FinalsFormat.choices, default=FinalsFormat.SEMI_1V4_2V3
+        "format de la phase finale",
+        max_length=20,
+        choices=FinalsFormat.choices,
+        default=FinalsFormat.SEMI_1V4_2V3,
     )
     finals_third_place = models.BooleanField("petite finale", default=True)
 
@@ -270,7 +278,7 @@ class ChampionshipTiebreak(TimeStampedModel):
     )
     position = models.PositiveSmallIntegerField("ordre d'application")
     criterion = models.CharField(max_length=20, choices=TiebreakCriterion.choices)
-    is_active = models.BooleanField(default=True)
+    is_active = models.BooleanField("active", default=True)
 
     class Meta:
         verbose_name = "critère de départage"
@@ -295,9 +303,14 @@ class PromotionRelegationRule(TimeStampedModel):
     championship = models.ForeignKey(
         Championship, on_delete=models.CASCADE, related_name="movement_rules"
     )
-    movement_type = models.CharField(max_length=12, choices=MovementType.choices)
+    movement_type = models.CharField(
+        "type de mouvement", max_length=12, choices=MovementType.choices
+    )
     source_division = models.ForeignKey(
-        Division, on_delete=models.PROTECT, related_name="movement_rules_out"
+        Division,
+        on_delete=models.PROTECT,
+        related_name="movement_rules_out",
+        verbose_name="division source",
     )
     target_division = models.ForeignKey(
         Division,
@@ -305,9 +318,10 @@ class PromotionRelegationRule(TimeStampedModel):
         null=True,
         blank=True,
         related_name="movement_rules_in",
+        verbose_name="division destination",
         help_text="Vide = sortie de la structure / maintien hors division.",
     )
-    method = models.CharField(max_length=20, choices=PromotionMethod.choices)
+    method = models.CharField("méthode", max_length=20, choices=PromotionMethod.choices)
     value_n = models.PositiveIntegerField("valeur N", null=True, blank=True)
     percentage = models.DecimalField(
         "pourcentage", max_digits=5, decimal_places=2, null=True, blank=True
@@ -315,7 +329,7 @@ class PromotionRelegationRule(TimeStampedModel):
     rank_min = models.PositiveIntegerField("rang minimum", null=True, blank=True)
     rank_max = models.PositiveIntegerField("rang maximum", null=True, blank=True)
     priority = models.PositiveSmallIntegerField("priorité", default=100)
-    is_active = models.BooleanField(default=True)
+    is_active = models.BooleanField("active", default=True)
 
     class Meta:
         verbose_name = "règle de promotion / relégation"

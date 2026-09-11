@@ -1,0 +1,327 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard — {{ championship.name }}{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="hero-band p-4 p-md-5 mb-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+    <div>
+      <h1 class="h3 mb-1">Dashboard administrateur</h1>
+      <p class="mb-0 opacity-75">{{ championship.name }}</p>
+    </div>
+    <div class="text-end">
+      <a href="{% url 'championships:detail' championship.slug %}" class="btn btn-light btn-sm">
+        Retour au championnat
+      </a>
+      <div class="small mt-2 opacity-75">
+        <span class="live-dot me-1"></span>Mise à jour automatique —
+        dernière actualisation <span id="last-updated">à l'instant</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="dashboard-content">
+  {% for alert in alerts %}
+    <div class="alert alert-{{ alert.level }} py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <span>{{ alert.message }}</span>
+      {% if alert.link_query %}
+        <a href="{% url 'competition:list' championship.slug %}?{{ alert.link_query }}" class="btn btn-sm btn-outline-{{ alert.level }}">
+          {{ alert.link_label }}
+        </a>
+      {% endif %}
+    </div>
+  {% endfor %}
+
+  <div class="row g-3 mb-4">
+    <div class="col-6 col-md-3">
+      <div class="stat-card p-3 h-100 d-flex align-items-center gap-3">
+        <div class="stat-icon" style="background: rgba(37,99,235,.1); color: var(--brand-primary);">
+          <i class="bi bi-people-fill"></i>
+        </div>
+        <div>
+          <div class="stat-value">{{ players_count }}</div>
+          <div class="stat-label">Joueurs · {{ divisions_count }} div.</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="stat-card p-3 h-100">
+        <div class="d-flex align-items-center gap-3 mb-2">
+          <div class="stat-icon" style="background: rgba(37,99,235,.1); color: var(--brand-primary);">
+            <i class="bi bi-calendar2-check"></i>
+          </div>
+          <div>
+            <div class="stat-value">{{ matches_completed }} / {{ matches_total }}</div>
+            <div class="stat-label">Matchs joués</div>
+          </div>
+        </div>
+        <div class="progress" style="height:6px;"><div class="progress-bar" style="width:{{ progress_pct }}%;"></div></div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="stat-card p-3 h-100 d-flex align-items-center gap-3">
+        <div class="stat-icon" style="background: rgba(124,58,237,.1); color: #7c3aed;">
+          <i class="bi bi-flag"></i>
+        </div>
+        <div>
+          <div class="stat-value">{{ matchdays_completed }} / {{ matchdays_total }}</div>
+          <div class="stat-label">Journées terminées</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="stat-card p-3 h-100 d-flex align-items-center gap-3">
+        <div class="stat-icon" style="background: rgba(217,119,6,.12); color: var(--brand-warning);">
+          <i class="bi bi-clock-history"></i>
+        </div>
+        <div>
+          <div class="stat-value {% if late_matches_count %}text-warning{% endif %}">{{ late_matches_count }}</div>
+          <div class="stat-label">Matchs en retard</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <a href="{% url 'competition:list' championship.slug %}?result_status=PENDING" class="text-decoration-none">
+        <div class="stat-card p-3 h-100 d-flex align-items-center gap-3">
+          <div class="stat-icon" style="background: rgba(8,145,178,.1); color: var(--brand-info);">
+            <i class="bi bi-hourglass-split"></i>
+          </div>
+          <div>
+            <div class="stat-value">{{ pending_results }}</div>
+            <div class="stat-label">Résultats en attente</div>
+          </div>
+        </div>
+      </a>
+    </div>
+    <div class="col-6 col-md-3">
+      <a href="{% url 'competition:list' championship.slug %}?status=DISPUTED" class="text-decoration-none">
+        <div class="stat-card p-3 h-100 d-flex align-items-center gap-3">
+          <div class="stat-icon" style="background: rgba(220,38,38,.1); color: var(--brand-danger);">
+            <i class="bi bi-exclamation-triangle"></i>
+          </div>
+          <div>
+            <div class="stat-value {% if matches_disputed %}text-danger{% endif %}">{{ matches_disputed }}</div>
+            <div class="stat-label">Litiges</div>
+          </div>
+        </div>
+      </a>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="stat-card p-3 h-100 d-flex align-items-center gap-3">
+        <div class="stat-icon" style="background: rgba(100,116,139,.12); color: var(--text-muted-2);">
+          <i class="bi bi-calendar-x"></i>
+        </div>
+        <div>
+          <div class="stat-value">{{ matches_postponed }}</div>
+          <div class="stat-label">Reportés</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="stat-card p-3 h-100 d-flex align-items-center gap-3">
+        <div class="stat-icon" style="background: rgba(15,23,42,.08); color: #0f172a;">
+          <i class="bi bi-flag-fill"></i>
+        </div>
+        <div>
+          <div class="stat-value">{{ matches_forfeit }}</div>
+          <div class="stat-label">Forfaits</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-4 mb-4">
+    <div class="col-12 col-lg-4">
+      <div class="chart-card card h-100">
+        <div class="card-header"><i class="bi bi-pie-chart me-2"></i>Progression du championnat</div>
+        <div class="card-body"><canvas id="chart-progress" height="220"></canvas></div>
+      </div>
+    </div>
+    <div class="col-12 col-lg-4">
+      <div class="chart-card card h-100">
+        <div class="card-header"><i class="bi bi-bar-chart me-2"></i>Répartition des résultats</div>
+        <div class="card-body"><canvas id="chart-results" height="220"></canvas></div>
+      </div>
+    </div>
+    <div class="col-12 col-lg-4">
+      <div class="chart-card card h-100">
+        <div class="card-header"><i class="bi bi-people me-2"></i>Joueurs par division</div>
+        <div class="card-body"><canvas id="chart-division-players" height="220"></canvas></div>
+      </div>
+    </div>
+    <div class="col-12 col-lg-6">
+      <div class="chart-card card h-100">
+        <div class="card-header"><i class="bi bi-trophy me-2"></i>Meilleurs joueurs (points)</div>
+        <div class="card-body"><canvas id="chart-top-players" height="240"></canvas></div>
+      </div>
+    </div>
+    <div class="col-12 col-lg-6">
+      <div class="chart-card card h-100">
+        <div class="card-header"><i class="bi bi-graph-up me-2"></i>Activité des résultats par jour</div>
+        <div class="card-body"><canvas id="chart-activity" height="240"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="chart-card card mb-4">
+    <div class="card-header"><i class="bi bi-diagram-3 me-2"></i>Progression par division</div>
+    <div class="card-body">
+      <div class="table-responsive">
+        <table class="table table-sm mb-0">
+          <thead><tr><th>Division</th><th>Matchs joués</th><th></th></tr></thead>
+          <tbody>
+            {% for d in division_progress %}
+            <tr>
+              <td>{{ d.name }}</td>
+              <td>{{ d.completed }} / {{ d.total }}</td>
+              <td style="width:40%;">
+                <div class="progress" style="height:6px;"><div class="progress-bar" style="width:{{ d.pct }}%;"></div></div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="chart-card card">
+    <div class="card-header"><i class="bi bi-clock-history me-2"></i>Matchs en retard</div>
+    <div class="card-body">
+      {% if late_matches %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead><tr><th>Division</th><th>Journée</th><th>Joueurs</th><th>Date prévue</th><th>Retard</th><th></th></tr></thead>
+          <tbody>
+            {% for match in late_matches %}
+            <tr>
+              <td>{{ match.division.name }}</td>
+              <td>{{ match.matchday.number|default:"—" }}</td>
+              <td>{{ match.player1.player }} vs {{ match.player2.player|default:"Exempt" }}</td>
+              <td>{{ match.scheduled_date|date:"d/m/Y" }}</td>
+              <td><span class="badge text-bg-warning text-dark">{{ match.days_late }} j</span></td>
+              <td class="text-end">
+                <a href="{% url 'competition:reschedule' championship.slug match.pk %}" class="btn btn-sm btn-outline-secondary">Reprogrammer</a>
+                <a href="{% url 'competition:forfeit' championship.slug match.pk %}" class="btn btn-sm btn-outline-dark">Forfait</a>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+        <p class="text-muted mb-0">Aucun match en retard.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  {{ chart_progress|json_script:"data-progress" }}
+  {{ chart_results|json_script:"data-results" }}
+  {{ chart_division_players|json_script:"data-division-players" }}
+  {{ chart_top_players|json_script:"data-top-players" }}
+  {{ chart_activity|json_script:"data-activity" }}
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function() {
+  let dashboardCharts = [];
+
+  function readData(id) {
+    const el = document.getElementById(id);
+    return el ? JSON.parse(el.textContent) : {labels: [], data: []};
+  }
+
+  function destroyCharts() {
+    dashboardCharts.forEach((c) => c.destroy());
+    dashboardCharts = [];
+  }
+
+  function initCharts() {
+    destroyCharts();
+    const palette = ["#2563eb", "#16a34a", "#d97706", "#dc2626", "#7c3aed", "#0891b2", "#f97316"];
+
+    const progressEl = document.getElementById("chart-progress");
+    if (progressEl) {
+      const progress = readData("data-progress");
+      dashboardCharts.push(new Chart(progressEl, {
+        type: "doughnut",
+        data: {labels: progress.labels, datasets: [{data: progress.data, backgroundColor: palette}]},
+        options: {plugins: {legend: {position: "bottom"}}},
+      }));
+    }
+
+    const resultsEl = document.getElementById("chart-results");
+    if (resultsEl) {
+      const results = readData("data-results");
+      dashboardCharts.push(new Chart(resultsEl, {
+        type: "pie",
+        data: {labels: results.labels, datasets: [{data: results.data, backgroundColor: ["#16a34a", "#6c757d", "#dc2626"]}]},
+        options: {plugins: {legend: {position: "bottom"}}},
+      }));
+    }
+
+    const divPlayersEl = document.getElementById("chart-division-players");
+    if (divPlayersEl) {
+      const divPlayers = readData("data-division-players");
+      dashboardCharts.push(new Chart(divPlayersEl, {
+        type: "bar",
+        data: {labels: divPlayers.labels, datasets: [{label: "Joueurs", data: divPlayers.data, backgroundColor: "#2563eb", borderRadius: 6}]},
+        options: {plugins: {legend: {display: false}}, scales: {y: {beginAtZero: true, ticks: {precision: 0}}}},
+      }));
+    }
+
+    const topPlayersEl = document.getElementById("chart-top-players");
+    if (topPlayersEl) {
+      const topPlayers = readData("data-top-players");
+      dashboardCharts.push(new Chart(topPlayersEl, {
+        type: "bar",
+        data: {labels: topPlayers.labels, datasets: [{label: "Points", data: topPlayers.data, backgroundColor: "#16a34a", borderRadius: 6}]},
+        options: {indexAxis: "y", plugins: {legend: {display: false}}, scales: {x: {beginAtZero: true, ticks: {precision: 0}}}},
+      }));
+    }
+
+    const activityEl = document.getElementById("chart-activity");
+    if (activityEl) {
+      const activity = readData("data-activity");
+      dashboardCharts.push(new Chart(activityEl, {
+        type: "line",
+        data: {labels: activity.labels, datasets: [{label: "Résultats saisis", data: activity.data, borderColor: "#2563eb", backgroundColor: "rgba(37,99,235,.1)", fill: true, tension: 0.35}]},
+        options: {plugins: {legend: {display: false}}, scales: {y: {beginAtZero: true, ticks: {precision: 0}}}},
+      }));
+    }
+  }
+
+  async function refreshDashboard() {
+    try {
+      const resp = await fetch(window.location.pathname, {
+        headers: {"X-Requested-With": "XMLHttpRequest"},
+        cache: "no-store",
+      });
+      if (!resp.ok) return;
+      const html = await resp.text();
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const fresh = doc.getElementById("dashboard-content");
+      const current = document.getElementById("dashboard-content");
+      if (fresh && current) {
+        current.innerHTML = fresh.innerHTML;
+        initCharts();
+        const ts = document.getElementById("last-updated");
+        if (ts) ts.textContent = new Date().toLocaleTimeString("fr-FR");
+      }
+    } catch (e) {
+      // Silencieux : nouvelle tentative au prochain intervalle.
+    }
+  }
+
+  initCharts();
+  setInterval(refreshDashboard, 20000);
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+
+{% block title %}Calendrier — {{ championship.name }}{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
+  <div>
+    <h1 class="h3 mb-1">Calendrier</h1>
+    <p class="text-muted mb-0">{{ championship.name }}</p>
+  </div>
+  <a href="{% url 'championships:detail' championship.slug %}" class="btn btn-outline-secondary btn-sm">
+    Retour au championnat
+  </a>
+</div>
+
+<div class="row g-3 mb-4">
+  {% for division in divisions %}
+    <div class="col-12 col-md-6 col-lg-4">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <h2 class="h6">{{ division.name }}</h2>
+          {% if division.has_schedule %}
+            <p class="mb-1">
+              {{ division.played_count }} / {{ division.total_count }} match(s) joué(s)
+            </p>
+            {% if division.total_count %}
+              {% widthratio division.played_count division.total_count 100 as pct %}
+              <div class="progress mb-2" style="height: 6px;">
+                <div class="progress-bar" style="width: {{ pct }}%;"></div>
+              </div>
+            {% endif %}
+            <a href="{% url 'competition:generate' championship.slug division.pk %}" class="btn btn-sm btn-outline-secondary">
+              Régénérer
+            </a>
+          {% else %}
+            <p class="text-muted mb-2">
+              {{ division.n_players }} joueur(s) → {{ division.expected_matches }} match(s),
+              {{ division.expected_matchdays }} journée(s) prévues.
+            </p>
+            <a href="{% url 'competition:generate' championship.slug division.pk %}" class="btn btn-sm btn-primary">
+              <i class="bi bi-calendar-plus me-1"></i>Générer le calendrier
+            </a>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  {% endfor %}
+</div>
+
+<form method="get" class="row g-2 mb-3">
+  <div class="col-auto">
+    <select name="division" class="form-select form-select-sm" onchange="this.form.submit()">
+      <option value="">Toutes les divisions</option>
+      {% for division in divisions %}
+        <option value="{{ division.pk }}" {% if selected_division == division.pk|stringformat:"s" %}selected{% endif %}>
+          {{ division.name }}
+        </option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-auto">
+    <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+      <option value="">Tous les statuts</option>
+      {% for value, label in status_choices %}
+        <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-auto">
+    <select name="result_status" class="form-select form-select-sm" onchange="this.form.submit()">
+      <option value="">Tous les résultats</option>
+      {% for value, label in result_status_choices %}
+        <option value="{{ value }}" {% if selected_result_status == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+</form>
+
+<div class="table-responsive">
+  <table class="table table-hover align-middle bg-white">
+    <thead>
+      <tr>
+        <th>Journée</th><th>Division</th><th>Joueur 1</th><th>Joueur 2</th>
+        <th>Date</th><th>Statut</th><th>Résultat</th><th>Score</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for match in matches %}
+      <tr>
+        <td>{{ match.matchday.number|default:"—" }}</td>
+        <td>{{ match.division.name }}</td>
+        <td>{{ match.player1.player }}</td>
+        <td>{{ match.player2.player|default:"Exempt" }}</td>
+        <td>{{ match.scheduled_date|date:"d/m/Y"|default:"—" }}</td>
+        <td><span class="badge text-bg-secondary">{{ match.get_status_display }}</span></td>
+        <td>
+          {% if match.result_status == "DISPUTED" %}
+            <span class="badge text-bg-danger">Litige</span>
+          {% elif match.result_status == "SUBMITTED" or match.result_status == "CONFIRMED" %}
+            <span class="badge text-bg-warning text-dark">En attente</span>
+          {% elif match.result_status == "VALIDATED" %}
+            <span class="badge text-bg-success">Validé</span>
+          {% elif match.result_status == "REJECTED" %}
+            <span class="badge text-bg-secondary">Rejeté</span>
+          {% else %}
+            <span class="text-muted">—</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if match.score1 is not None %}{{ match.score1 }} - {{ match.score2 }}{% else %}—{% endif %}
+        </td>
+        <td class="text-end text-nowrap">
+          <a href="{% url 'competition:result' championship.slug match.pk %}" class="btn btn-sm btn-outline-primary" title="Résultat">
+            <i class="bi bi-clipboard-check"></i>
+          </a>
+          {% if match.result_status == "DISPUTED" %}
+            <a href="{% url 'competition:reject' championship.slug match.pk %}" class="btn btn-sm btn-outline-danger" title="Rejeter le litige">
+              <i class="bi bi-exclamation-triangle"></i>
+            </a>
+          {% endif %}
+          {% if match.result_status != "VALIDATED" %}
+            <a href="{% url 'competition:reschedule' championship.slug match.pk %}" class="btn btn-sm btn-outline-secondary" title="Reprogrammer">
+              <i class="bi bi-calendar-event"></i>
+            </a>
+            <form method="post" action="{% url 'competition:postpone' championship.slug match.pk %}" class="d-inline">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-sm btn-outline-warning" title="Reporter">
+                <i class="bi bi-clock-history"></i>
+              </button>
+            </form>
+            <a href="{% url 'competition:forfeit' championship.slug match.pk %}" class="btn btn-sm btn-outline-dark" title="Déclarer forfait">
+              <i class="bi bi-flag"></i>
+            </a>
+            <a href="{% url 'competition:cancel' championship.slug match.pk %}" class="btn btn-sm btn-outline-danger" title="Annuler">
+              <i class="bi bi-x-lg"></i>
+            </a>
+          {% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="9" class="text-center text-muted py-4">Aucun match.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if is_paginated %}
+<nav>
+  <ul class="pagination">
+    {% if page_obj.has_previous %}
+      <li class="page-item"><a class="page-link" href="?page={{ page_obj.previous_page_number }}">Précédent</a></li>
+    {% endif %}
+    <li class="page-item disabled"><span class="page-link">Page {{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span></li>
+    {% if page_obj.has_next %}
+      <li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}">Suivant</a></li>
+    {% endif %}
+  </ul>
+</nav>
+{% endif %}
+{% endblock %}

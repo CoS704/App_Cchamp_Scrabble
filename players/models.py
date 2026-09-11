@@ -22,6 +22,16 @@ class Player(TimeStampedModel):
     first_name = models.CharField("prénom", max_length=100)
     last_name = models.CharField("nom", max_length=100)
     display_name = models.CharField("nom affiché", max_length=120, blank=True)
+    scrabblego_id = models.CharField(
+        "identifiant ScrabbleGO",
+        max_length=64,
+        blank=True,
+        help_text=(
+            "Identifiant unique du joueur sur l'application ScrabbleGO, affiché "
+            "publiquement (classements, adversaires) pour permettre aux joueurs "
+            "de s'y retrouver d'une division à l'autre."
+        ),
+    )
     slug = models.SlugField(max_length=140, unique=True, blank=True)
     photo = models.ImageField(upload_to="players/", blank=True, null=True)
     birth_date = models.DateField("date de naissance", null=True, blank=True)

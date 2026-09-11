@@ -49,6 +49,8 @@ LOCAL_APPS = [
     "transitions",
     "notifications",
     "audit",
+    "dashboard",
+    "analytics",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -78,6 +80,8 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "core.context_processors.admin_nav",
+                "core.context_processors.unread_notifications",
             ],
         },
     },
@@ -98,6 +102,13 @@ DATABASES = {
 if DATABASES["default"].get("ENGINE") == "django.db.backends.postgresql":
     DATABASES["default"]["CONN_MAX_AGE"] = env("CONN_MAX_AGE")
     DATABASES["default"].setdefault("OPTIONS", {})
+    # Neon (comme tout PgBouncer en mode "transaction pooling") peut faire
+    # migrer une requête vers une connexion serveur différente entre deux
+    # instructions : un curseur nommé ouvert par un ModelChoiceField
+    # (QuerySet.iterator(), utilisé par les <select> de formulaire) devient
+    # alors introuvable à sa fermeture → InvalidCursorName. C'est le
+    # contournement documenté par Django pour ce mode de pooling.
+    DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
 
 # --- Authentification --------------------------------------------------
 AUTH_USER_MODEL = "accounts.User"
@@ -109,9 +120,9 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
-LOGIN_URL = "login"
-LOGIN_REDIRECT_URL = "/"
-LOGOUT_REDIRECT_URL = "/"
+LOGIN_URL = "accounts:login"
+LOGIN_REDIRECT_URL = "home"
+LOGOUT_REDIRECT_URL = "home"
 
 # --- Internationalisation --------------------------------------------
 LANGUAGE_CODE = "fr-fr"

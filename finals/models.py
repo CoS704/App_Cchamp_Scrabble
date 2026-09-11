@@ -63,12 +63,14 @@ class BracketSlot(TimeStampedModel):
         blank=True,
         related_name="feeds_lose",
     )
-    match = models.OneToOneField(
+    # ForeignKey (et non OneToOne) : les deux camps d'un même match partagent
+    # la même ligne ``Match`` — voir finals.services pour la convention.
+    match = models.ForeignKey(
         "competition.Match",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="bracket_slot",
+        related_name="bracket_slots",
     )
     is_third_place = models.BooleanField(default=False)
 
@@ -78,7 +80,8 @@ class BracketSlot(TimeStampedModel):
         ordering = ["bracket", "round_index", "position"]
         constraints = [
             models.UniqueConstraint(
-                fields=["bracket", "round_index", "position"], name="uniq_slot_position"
+                fields=["bracket", "round_index", "position", "is_third_place"],
+                name="uniq_slot_position",
             ),
         ]
 

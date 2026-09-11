@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block title %}{{ form_title }}{% endblock %}
+
+{% block content %}
+<h1 class="h4 mb-4">{{ form_title }}</h1>
+
+{% if championship and championship.rules_locked %}
+  <div class="alert alert-warning">
+    <i class="bi bi-lock-fill me-1"></i>
+    Les règles de <strong>{{ championship }}</strong> sont verrouillées depuis le
+    {{ championship.rules_locked_at|date:"d/m/Y H:i" }}. Cette modification sera journalisée.
+  </div>
+{% endif %}
+
+<form method="post" class="card shadow-sm p-4" style="max-width: 820px;">
+  {% csrf_token %}
+  {% if form.non_field_errors %}
+    <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+  {% endif %}
+  <div class="row">
+    {% for field in form %}
+      <div class="col-12 col-md-6 mb-3">
+        <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+        {% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+        {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+      </div>
+    {% endfor %}
+  </div>
+  <button type="submit" class="btn btn-primary">Enregistrer</button>
+  {% if championship %}
+    <a href="{% url 'championships:detail' championship.slug %}" class="btn btn-link">Annuler</a>
+  {% endif %}
+</form>
+{% endblock %}

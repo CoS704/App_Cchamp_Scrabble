@@ -1,0 +1,233 @@
+{% extends "base.html" %}
+
+{% block title %}Mon espace{% endblock %}
+
+{% block content %}
+{% if not player %}
+  <div class="hero-band p-4 p-md-5 mb-4">
+    <h1 class="h3 mb-1">Mon espace</h1>
+    <p class="mb-0 opacity-75">
+      Aucun profil joueur n'est associé à votre compte
+      {% if managed_championships %}— voici les championnats que vous gérez.{% endif %}
+    </p>
+  </div>
+
+  {% if managed_championships %}
+    <div class="row g-3">
+      {% for championship in managed_championships %}
+        <div class="col-12 col-md-6 col-lg-4">
+          <div class="stat-card p-3 h-100">
+            <div class="d-flex justify-content-between align-items-start mb-2">
+              <h2 class="h6 mb-0">{{ championship.name }}</h2>
+              <span class="badge text-bg-secondary">{{ championship.get_status_display }}</span>
+            </div>
+            <p class="text-muted small mb-3">Saison {{ championship.season }}</p>
+            <a href="{% url 'dashboard:admin' championship.slug %}" class="btn btn-sm btn-primary">
+              <i class="bi bi-speedometer2 me-1"></i>Dashboard
+            </a>
+            <a href="{% url 'championships:detail' championship.slug %}" class="btn btn-sm btn-outline-secondary">
+              Gérer
+            </a>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="alert alert-info">
+      Aucun profil joueur n'est associé à votre compte, et vous n'administrez
+      aucun championnat. Contactez un administrateur si vous pensez que c'est une erreur.
+    </div>
+  {% endif %}
+{% elif not participation %}
+  <h1 class="h3 mb-4">Mon espace</h1>
+  <div class="alert alert-info">
+    Vous n'êtes inscrit à aucun championnat pour l'instant.
+  </div>
+{% else %}
+  <div class="hero-band p-4 p-md-5 mb-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+      <div>
+        <h1 class="h3 mb-1">Bonjour {{ player.full_name }}</h1>
+        <p class="mb-0 opacity-75">
+          {{ championship.name }} — {{ division.name }}
+          {% if row and row.movement_zone == "PROMOTION" %}
+            <span class="badge text-bg-success ms-1">Zone de promotion</span>
+          {% elif row and row.movement_zone == "RELEGATION" %}
+            <span class="badge text-bg-danger ms-1">Zone de relégation</span>
+          {% elif row and row.movement_zone == "FINALS" %}
+            <span class="badge text-bg-info ms-1">Qualifiable en phase finale</span>
+          {% endif %}
+        </p>
+      </div>
+      <div class="small text-end opacity-75">
+        <span class="live-dot me-1"></span>Mise à jour automatique —
+        <span id="last-updated">à l'instant</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="dashboard-content">
+    <div class="row g-3 mb-4">
+      <div class="col-6 col-md-3">
+        <div class="stat-card p-3 h-100 text-center">
+          <div class="stat-value">{% if row %}{{ row.rank }}{% if total_rows %}<span class="fs-6 text-muted">/{{ total_rows }}</span>{% endif %}{% else %}—{% endif %}</div>
+          <div class="stat-label">Rang</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-card p-3 h-100 text-center">
+          <div class="stat-value">{{ row.points|default:0 }}</div>
+          <div class="stat-label">Points</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-card p-3 h-100 text-center">
+          <div class="stat-value">{{ row.played|default:0 }}</div>
+          <div class="stat-label">Joués · {{ remaining }} restant(s)</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-card p-3 h-100 text-center">
+          <div class="stat-value">{{ row.wins|default:0 }}<span class="text-success">·</span>{{ row.draws|default:0 }}<span class="text-muted">·</span>{{ row.losses|default:0 }}</div>
+          <div class="stat-label">V · N · D</div>
+        </div>
+      </div>
+    </div>
+
+    {% if probabilities %}
+    <div class="chart-card card mb-4">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-graph-up-arrow me-2"></i>Estimation de fin de saison</span>
+        <a href="{% url 'dashboard_player:simulation' %}" class="btn btn-sm btn-outline-primary">Simuler « et si… »</a>
+      </div>
+      <div class="card-body">
+        {# Promotion / maintien / relégation forment une partition (somme = 100 %). #}
+        <div class="progress mb-2" style="height: 12px;">
+          <div class="progress-bar bg-success" style="width: {{ probabilities.promotion_pct }}%" title="Promotion"></div>
+          <div class="progress-bar" style="width: {{ probabilities.safe_pct }}%; background-color: var(--text-muted-2);" title="Maintien"></div>
+          <div class="progress-bar bg-danger" style="width: {{ probabilities.relegation_pct }}%" title="Relégation"></div>
+        </div>
+        <div class="row text-center g-3 mb-3">
+          <div class="col-4"><div class="fw-bold text-success">{{ probabilities.promotion_pct }}%</div><div class="stat-label">Promotion</div></div>
+          <div class="col-4"><div class="fw-bold">{{ probabilities.safe_pct }}%</div><div class="stat-label">Maintien</div></div>
+          <div class="col-4"><div class="fw-bold text-danger">{{ probabilities.relegation_pct }}%</div><div class="stat-label">Relégation</div></div>
+        </div>
+
+        {% if championship.settings.finals_enabled %}
+        {# Indicateur indépendant : n'appartient pas à la partition ci-dessus. #}
+        <div class="d-flex justify-content-between align-items-center small mb-1">
+          <span class="text-muted"><i class="bi bi-trophy me-1"></i>Qualification en phase finale</span>
+          <span class="fw-bold text-info">{{ probabilities.finals_pct }}%</span>
+        </div>
+        <div class="progress mb-3" style="height: 8px;">
+          <div class="progress-bar bg-info" style="width: {{ probabilities.finals_pct }}%"></div>
+        </div>
+        {% endif %}
+
+        <p class="text-muted small mb-0">
+          Estimation basée sur le classement actuel, les matchs restants et les
+          scénarios possibles. Ce n'est pas une décision officielle.
+        </p>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="row g-4">
+      <div class="col-12 col-md-6">
+        <div class="chart-card card h-100">
+          <div class="card-header"><i class="bi bi-calendar-event me-2"></i>Prochain match</div>
+          <div class="card-body">
+            {% if next_match %}
+              <p class="mb-1 fw-medium">
+                {{ next_match.player1.player }} vs {{ next_match.player2.player|default:"Exempt" }}
+              </p>
+              {% if next_match_opponent %}
+                <p class="mb-2">
+                  <i class="bi bi-controller me-1 text-muted"></i>
+                  Identifiant ScrabbleGO de l'adversaire :
+                  {% if next_match_opponent.player.scrabblego_id %}
+                    <span class="badge text-bg-light border">{{ next_match_opponent.player.scrabblego_id }}</span>
+                  {% else %}
+                    <span class="text-muted fst-italic">non renseigné</span>
+                  {% endif %}
+                </p>
+              {% endif %}
+              <p class="text-muted mb-2">
+                {% if next_match.matchday %}Journée {{ next_match.matchday.number }} — {% endif %}
+                {{ next_match.scheduled_date|date:"d/m/Y"|default:"Date à définir" }}
+                <span class="badge text-bg-secondary ms-1">{{ next_match.get_status_display }}</span>
+              </p>
+              <a href="{% url 'competition:result' championship.slug next_match.pk %}" class="btn btn-sm btn-primary">
+                Saisir le résultat
+              </a>
+            {% else %}
+              <p class="text-muted mb-0">Aucun match à venir.</p>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      <div class="col-12 col-md-6">
+        <div class="chart-card card h-100">
+          <div class="card-header"><i class="bi bi-activity me-2"></i>Forme récente</div>
+          <div class="card-body">
+            {% if recent_matches %}
+              <div class="mb-2">
+                {% for entry in recent_matches %}
+                  <span class="badge {% if entry.result == 'V' %}text-bg-success{% elif entry.result == 'D' %}text-bg-danger{% else %}text-bg-secondary{% endif %} me-1">
+                    {{ entry.result }}
+                  </span>
+                {% endfor %}
+              </div>
+              <ul class="list-group list-group-flush">
+                {% for entry in recent_matches %}
+                  <li class="list-group-item d-flex justify-content-between px-0">
+                    <span>
+                      vs {{ entry.opponent.player|default:"Exempt" }}
+                      {% if entry.opponent.player.scrabblego_id %}
+                        <span class="text-muted small">({{ entry.opponent.player.scrabblego_id }})</span>
+                      {% endif %}
+                    </span>
+                    <span class="text-muted">{{ entry.my_score }} - {{ entry.opp_score }}</span>
+                  </li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              <p class="text-muted mb-0">Aucun match joué pour l'instant.</p>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+{% if participation %}
+<script>
+(function() {
+  async function refreshDashboard() {
+    try {
+      const resp = await fetch(window.location.pathname, {
+        headers: {"X-Requested-With": "XMLHttpRequest"},
+        cache: "no-store",
+      });
+      if (!resp.ok) return;
+      const html = await resp.text();
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const fresh = doc.getElementById("dashboard-content");
+      const current = document.getElementById("dashboard-content");
+      if (fresh && current) {
+        current.innerHTML = fresh.innerHTML;
+        const ts = document.getElementById("last-updated");
+        if (ts) ts.textContent = new Date().toLocaleTimeString("fr-FR");
+      }
+    } catch (e) {
+      // Silencieux : nouvelle tentative au prochain intervalle.
+    }
+  }
+  setInterval(refreshDashboard, 20000);
+})();
+</script>
+{% endif %}
+{% endblock %}

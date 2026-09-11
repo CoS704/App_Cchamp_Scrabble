@@ -12,9 +12,21 @@ env/
 
 db.sqlite3
 db.sqlite3-journal
+*.sqlite3
+
+# Secrets — ne jamais committer de clés, certificats ou identifiants.
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+secrets.json
+credentials.json
+local_settings.py
+.netrc
 
 /staticfiles/
 /media/

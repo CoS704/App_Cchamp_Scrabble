@@ -198,18 +198,31 @@ class Match(TimeStampedModel):
             models.Index(fields=["championship", "division", "status"]),
             models.Index(fields=["result_status"]),
             models.Index(fields=["scheduled_date"]),
+            # Requête la plus chaude : recalcul du classement après chaque
+            # résultat validé (rankings.services.compute_standings) — §56.
+            models.Index(
+                fields=["phase", "counts_for_standings", "result_status"],
+                name="match_standings_lookup_idx",
+            ),
         ]
 
     def __str__(self):
         p2 = self.player2.player if self.player2_id else "Exempt"
         return f"{self.player1.player} vs {p2}"
 
-    def save(self, *args, **kwargs):
-        ids = sorted(i for i in (self.player1_id, self.player2_id) if i)
+    @staticmethod
+    def compute_pair_key(player1_id, player2_id) -> str:
+        """Clé symétrique anti-doublon, réutilisée par ``save()`` et par la
+        génération de calendrier en masse (``bulk_create`` n'appelle pas save)."""
+        ids = sorted(i for i in (player1_id, player2_id) if i)
         if len(ids) == 2:
-            self.pair_key = f"{ids[0]}-{ids[1]}"
-        elif ids:
-            self.pair_key = f"bye-{ids[0]}"
+            return f"{ids[0]}-{ids[1]}"
+        if ids:
+            return f"bye-{ids[0]}"
+        return ""
+
+    def save(self, *args, **kwargs):
+        self.pair_key = self.compute_pair_key(self.player1_id, self.player2_id)
         if self.phase_id and not self.championship_id:
             self.championship_id = self.phase.championship_id
         super().save(*args, **kwargs)

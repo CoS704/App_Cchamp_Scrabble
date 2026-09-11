@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block title %}Classements{% endblock %}
+
+{% block content %}
+<div class="hero-band p-4 p-md-5 mb-4">
+  <h1 class="h3 mb-1"><i class="bi bi-trophy-fill me-2"></i>Classements</h1>
+  <p class="mb-0 opacity-75">Consultez le classement de n'importe quel championnat, à jour en temps réel.</p>
+</div>
+
+<div class="row g-3">
+  {% for championship in championships %}
+    <div class="col-12 col-md-6 col-lg-4">
+      <a href="{% url 'public_rankings:detail' championship.slug %}" class="text-decoration-none">
+        <div class="stat-card p-3 h-100">
+          <div class="d-flex justify-content-between align-items-start mb-2">
+            <h2 class="h6 mb-0 text-body">{{ championship.name }}</h2>
+            <span class="badge text-bg-secondary">{{ championship.get_status_display }}</span>
+          </div>
+          <p class="text-muted small mb-0">
+            Saison {{ championship.season }}{% if championship.series %} — {{ championship.series }}{% endif %}
+          </p>
+          <p class="text-muted small mb-0">{{ championship.divisions.count }} division(s)</p>
+        </div>
+      </a>
+    </div>
+  {% empty %}
+    <p class="text-muted">Aucun championnat publié pour l'instant.</p>
+  {% endfor %}
+</div>
+{% endblock %}

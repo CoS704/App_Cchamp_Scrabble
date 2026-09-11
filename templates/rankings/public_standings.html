@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block title %}Classement — {{ championship.name }}{% endblock %}
+
+{% block content %}
+<div class="hero-band p-4 p-md-5 mb-4">
+  <a href="{% url 'public_rankings:list' %}" class="text-white-50 small">
+    <i class="bi bi-arrow-left me-1"></i>Tous les championnats
+  </a>
+  <h1 class="h3 mt-2 mb-1"><i class="bi bi-trophy-fill me-2"></i>{{ championship.name }}</h1>
+  <p class="mb-0 opacity-75">
+    Saison {{ championship.season }} — Départage :
+    {{ championship.settings.get_primary_tiebreak_display }}
+  </p>
+</div>
+
+{% for entry in divisions_standings %}
+<div class="chart-card card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span>
+      <span class="badge me-1" style="background-color: {{ entry.division.color|default:'#6c757d' }};">&nbsp;</span>
+      {{ entry.division.name }}
+    </span>
+    {% if entry.snapshot.has_unresolved_tie %}
+      <span class="badge text-bg-danger"><i class="bi bi-exclamation-triangle"></i> Égalité non résolue</span>
+    {% endif %}
+  </div>
+  <div class="card-body">
+    {% if entry.rows %}
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Rang</th><th>Joueur</th><th>ScrabbleGO</th><th>MJ</th><th>V</th><th>N</th><th>D</th>
+            <th>Score</th><th>Diff.</th><th>Pts</th><th>Forme</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in entry.rows %}
+          <tr class="
+            {% if row.movement_zone == 'PROMOTION' %}table-success
+            {% elif row.movement_zone == 'RELEGATION' %}table-danger
+            {% elif row.movement_zone == 'FINALS' %}table-info{% endif %}">
+            <td>{{ row.rank }}</td>
+            <td class="fw-medium">{{ row.participation.player }}</td>
+            <td class="text-muted">{{ row.participation.player.scrabblego_id|default:"—" }}</td>
+            <td>{{ row.played }}</td>
+            <td>{{ row.wins }}</td>
+            <td>{{ row.draws }}</td>
+            <td>{{ row.losses }}</td>
+            <td>{{ row.score_for }} - {{ row.score_against }}</td>
+            <td>{{ row.score_diff }}</td>
+            <td class="fw-bold">{{ row.points }}</td>
+            <td>
+              {% for letter in row.form %}
+                <span class="badge {% if letter == 'V' %}text-bg-success{% elif letter == 'D' %}text-bg-danger{% else %}text-bg-secondary{% endif %}">
+                  {{ letter }}
+                </span>
+              {% endfor %}
+            </td>
+            <td>
+              {% if row.movement_zone == 'PROMOTION' %}<span class="badge text-bg-success">Promotion</span>
+              {% elif row.movement_zone == 'RELEGATION' %}<span class="badge text-bg-danger">Relégation</span>
+              {% elif row.movement_zone == 'FINALS' %}<span class="badge text-bg-info">Phase finale</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+      <p class="text-muted mb-0">Calendrier pas encore généré pour cette division.</p>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+{% endblock %}

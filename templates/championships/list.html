@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}Championnats{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="h3 mb-0">Championnats</h1>
+  <a href="{% url 'championships:create' %}" class="btn btn-primary">
+    <i class="bi bi-plus-lg me-1"></i>Nouveau championnat
+  </a>
+</div>
+<div class="table-responsive">
+  <table class="table table-hover align-middle bg-white">
+    <thead>
+      <tr><th>Nom</th><th>Saison</th><th>Statut</th><th>Divisions</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for c in championships %}
+      <tr>
+        <td>
+          <a href="{% url 'championships:detail' c.slug %}">{{ c.name }}</a>
+          {% if c.is_inaugural %}<span class="badge text-bg-info">Inaugurale</span>{% endif %}
+          {% if c.rules_locked %}<i class="bi bi-lock-fill text-warning ms-1" title="Règles verrouillées"></i>{% endif %}
+        </td>
+        <td>{{ c.season }}</td>
+        <td><span class="badge text-bg-secondary">{{ c.get_status_display }}</span></td>
+        <td>{{ c.divisions.count }}</td>
+        <td class="text-end">
+          <a href="{% url 'championships:detail' c.slug %}" class="btn btn-sm btn-outline-secondary">Gérer</a>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5" class="text-center text-muted py-4">Aucun championnat pour l'instant.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

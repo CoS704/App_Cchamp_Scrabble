@@ -2,21 +2,22 @@
 
 Application web (Django 5 + PostgreSQL) pour organiser des championnats de Scrabble
 multi-divisions : inscriptions, calendrier round-robin, saisie et validation des
-résultats, moteur de classement configurable, promotions / relégations, phases
-finales, dashboards administrateur et joueur.
+résultats (anti-double-saisie), moteur de classement configurable (départage,
+égalités persistantes), promotions/relégations, phases finales, dashboards
+administrateur et joueur, statistiques, simulation « et si », notifications.
 
-> **État d'avancement** : étape 6 du plan — projet, applications, modèles et
-> migrations. La couche de services, les vues et l'UI arrivent aux étapes suivantes.
-> La conception détaillée de la base est décrite dans
-> [`docs/01-modelisation-bdd.md`](docs/01-modelisation-bdd.md).
+> **État d'avancement** : étapes 1 à 22 du plan en 24 étapes (voir
+> [`docs/01-modelisation-bdd.md`](docs/01-modelisation-bdd.md) §7). Restent :
+> optimisation (23) et exécution du déploiement (24) — la configuration de
+> déploiement est prête depuis l'étape 6.
 
 ## Stack
 
 | Couche | Choix |
 |--------|-------|
-| Backend | Python 3.12, Django 5.2, Django REST Framework |
-| Base de données | PostgreSQL (Neon en production), SQLite en local hors-ligne |
-| Frontend | Django templates + Bootstrap 5, Chart.js (étapes UI) |
+| Backend | Python 3.10+, Django 5.2, Django REST Framework |
+| Base de données | PostgreSQL (Neon en production/dev), SQLite pour les tests et le mode hors-ligne |
+| Frontend | Django templates + Bootstrap 5, Bootstrap Icons, Chart.js |
 | Déploiement | Render (web + build), Neon (PostgreSQL) |
 | Statiques | WhiteNoise |
 | Serveur | Gunicorn |
@@ -24,20 +25,26 @@ finales, dashboards administrateur et joueur.
 ## Architecture des applications
 
 ```
-config/          réglages (base / dev / prod), urls, wsgi/asgi
-core/            modèles abstraits, énumérations métier, permissions
-accounts/        User personnalisé, ChampionshipStaff (rôles par édition)
-players/         Player (identité compétiteur, découplée du compte)
-championships/   CompetitionSeries, Championship, ChampionshipSettings,
-                 Division, ChampionshipTiebreak, PromotionRelegationRule
-participations/  ChampionshipParticipation (entité pivot + historique)
-competition/     Phase, Matchday, Match, ResultSubmission, TieResolution
-rankings/        StandingSnapshot, StandingRow (cache + historique)
-finals/          Bracket, BracketSlot
-transitions/     SeasonTransition, SeasonTransitionMove (saison suivante)
-notifications/   Notification
-audit/           AuditLog (trace immuable)
+config/          réglages (base / dev / prod / test), urls, wsgi/asgi
+core/            modèles abstraits, énumérations métier, permissions, fabriques de tests
+accounts/        User personnalisé, ChampionshipStaff (rôles par édition), auth
+players/         Player (identité compétiteur, découplée du compte), import CSV
+championships/   CompetitionSeries, Championship, ChampionshipSettings, Division,
+                 ChampionshipTiebreak, PromotionRelegationRule, seed_demo
+participations/  ChampionshipParticipation (entité pivot + historique), inscriptions
+competition/     Phase, Matchday, Match, ResultSubmission, TieResolution,
+                 génération du calendrier, cycle de vie des matchs, résultats
+rankings/        StandingSnapshot, StandingRow (cache + historique), moteur de classement
+finals/          Bracket, BracketSlot, tableau à élimination, progression automatique
+transitions/     SeasonTransition, SeasonTransitionMove, génération de la saison suivante
+dashboard/       Dashboards admin (KPIs, graphiques, alertes) et joueur, simulation
+analytics/       Probabilités montée/maintien/relégation, simulation « et si »
+notifications/   Notification, commande check_late_matches
+audit/           AuditLog (trace immuable de toute action critique)
 ```
+
+La logique métier vit dans des modules `services.py` (ou `services/`) par
+app — jamais dans les templates ni dans les vues, qui restent fines.
 
 ## Installation locale
 
@@ -58,11 +65,37 @@ Avec une URL Neon, elle utilise PostgreSQL.
 ```bash
 python manage.py migrate
 python manage.py createsuperuser
+python manage.py seed_demo      # optionnel : jeu de données de démonstration
 python manage.py runserver
 ```
 
 - Application : http://127.0.0.1:8000/
 - Admin Django : http://127.0.0.1:8000/admin/
+- Dashboard admin : `/gestion/championnats/<slug>/dashboard/`
+- Espace joueur : `/mon-espace/`
+
+## Données de démonstration
+
+```bash
+python manage.py seed_demo            # crée un championnat complet
+python manage.py seed_demo --reset    # supprime la démo existante puis la régénère
+```
+
+Génère 20 joueurs répartis sur 2 divisions, calendrier round-robin complet,
+des résultats déjà joués (avec **un litige** et **un forfait** de démonstration
+volontaires), quelques matchs volontairement laissés en retard, et les
+notifications générées automatiquement par ces événements.
+
+Comptes créés (mot de passe unique, **usage local uniquement**) :
+
+| Compte | Mot de passe | Rôle |
+|---|---|---|
+| `demo_admin` | `Demo-Pass-1234` | Administrateur (Super Admin) |
+| `demo_arbitre` | `Demo-Pass-1234` | Arbitre de l'édition |
+| `demo_joueur1` | `Demo-Pass-1234` | Joueur (Alice Bernard, Division 1) |
+| `demo_joueur2` | `Demo-Pass-1234` | Joueur (Bastien Petit, Division 1) |
+
+⚠️ Ne jamais utiliser ces identifiants sur une instance exposée publiquement.
 
 ## Variables d'environnement
 
@@ -84,18 +117,36 @@ python manage.py runserver
 4. `build.sh` installe les dépendances, exécute `collectstatic` puis `migrate`.
 5. Démarrage : `gunicorn config.wsgi:application`.
 
+## Tests
+
+La suite (59 tests) couvre les points du cahier des charges (§60) : génération
+de calendrier (invariants round-robin), double saisie/litiges/validation des
+résultats, moteur de classement (points, départage, égalités persistantes,
+zones de promotion/relégation), phases finales, saison suivante, permissions
+et sécurité (un joueur ne peut jamais agir sur les données d'un autre).
+
+```bash
+DJANGO_SETTINGS_MODULE=config.settings.test python manage.py test
+```
+
+> Les tests tournent sur SQLite en mémoire (`config/settings/test.py`), pas sur
+> Neon : le connecteur Neon utilisé en dev passe par un pooler PgBouncer
+> incompatible avec le cycle CREATE/DROP DATABASE de `manage.py test`. Le code
+> applicatif n'utilise aucune fonctionnalité propre à PostgreSQL.
+
 ## Commandes utiles
 
 ```bash
 python manage.py makemigrations
 python manage.py migrate
 python manage.py check
-python manage.py test
+DJANGO_SETTINGS_MODULE=config.settings.test python manage.py test
 python manage.py createsuperuser
+python manage.py seed_demo
+python manage.py check_late_matches   # à planifier périodiquement (cron)
 ```
 
 ## Suite du plan
 
-Services métier (calendrier, résultats, classement, départages, promotions),
-dashboards, statistiques et simulations, notifications, tests, `seed_demo`,
-optimisation, déploiement. Voir `docs/01-modelisation-bdd.md` §7.
+Optimisation (requêtes, index, cache) et exécution du déploiement Render +
+Neon. Voir `docs/01-modelisation-bdd.md` §7.

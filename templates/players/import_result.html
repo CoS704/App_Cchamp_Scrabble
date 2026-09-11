@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block title %}Résultat de l'import{% endblock %}
+
+{% block content %}
+<h1 class="h4 mb-4">Résultat de l'import</h1>
+<div class="alert alert-success">{{ report.created|length }} joueur(s) créé(s).</div>
+{% if report.skipped %}
+<div class="alert alert-warning">
+  <strong>{{ report.skipped|length }} ligne(s) ignorée(s) :</strong>
+  <ul class="mb-0">
+    {% for line, reason in report.skipped %}<li>Ligne {{ line }} : {{ reason }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+<a href="{% url 'players:list' %}" class="btn btn-primary">Retour aux joueurs</a>
+{% endblock %}

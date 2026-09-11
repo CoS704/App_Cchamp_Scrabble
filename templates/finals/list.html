@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}Phases finales — {{ championship.name }}{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
+  <h1 class="h3 mb-0">Phases finales</h1>
+  <a href="{% url 'championships:detail' championship.slug %}" class="btn btn-outline-secondary btn-sm">
+    Retour au championnat
+  </a>
+</div>
+
+{% if not finals_enabled %}
+  <div class="alert alert-warning">
+    La phase finale n'est pas activée pour ce championnat.
+    <a href="{% url 'championships:settings' championship.slug %}">Activez-la dans les paramètres</a>.
+  </div>
+{% endif %}
+
+{% if brackets %}
+<div class="row g-3 mb-4">
+  {% for bracket in brackets %}
+    <div class="col-12 col-md-6">
+      <div class="card shadow-sm">
+        <div class="card-body d-flex justify-content-between align-items-center">
+          <div>
+            <h2 class="h6 mb-0">{{ bracket.division.name }}</h2>
+            <span class="text-muted small">{{ bracket.size }} qualifiés</span>
+          </div>
+          <a href="{% url 'finals:detail' championship.slug bracket.pk %}" class="btn btn-sm btn-primary">Voir</a>
+        </div>
+      </div>
+    </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if finals_enabled and divisions_without_bracket %}
+<h2 class="h5 mb-3">Générer un tableau</h2>
+<div class="row g-3">
+  {% for division in divisions_without_bracket %}
+    <div class="col-12 col-md-4">
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <h3 class="h6">{{ division.name }}</h3>
+          <form method="post" action="{% url 'finals:generate' championship.slug division.pk %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-sm btn-primary">
+              Générer ({{ championship.settings.finals_qualifiers_count }} qualifiés)
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

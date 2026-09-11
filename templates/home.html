@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="p-5 mb-4 bg-body-tertiary rounded-3">
+  <h1 class="display-6 fw-bold">Championnat de Scrabble</h1>
+  <p class="col-lg-8 fs-5 text-muted">
+    Plateforme de gestion de championnats de Scrabble : divisions, calendrier,
+    résultats, classements et statistiques. L'espace public (classements,
+    calendrier, joueurs) et les dashboards administrateur / joueur arrivent
+    dans les prochaines étapes.
+  </p>
+  {% if user.is_authenticated %}
+    <a class="btn btn-primary" href="{% url 'accounts:profile' %}">Mon profil</a>
+  {% else %}
+    <a class="btn btn-primary" href="{% url 'accounts:login' %}">Connexion</a>
+  {% endif %}
+</div>
+{% endblock %}

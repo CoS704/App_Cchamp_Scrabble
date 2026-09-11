@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block title %}Inscriptions — {{ championship.name }}{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
+  <div>
+    <h1 class="h3 mb-1">Inscriptions</h1>
+    <p class="text-muted mb-0">{{ championship.name }}</p>
+  </div>
+  <a href="{% url 'participations:create' championship.slug %}" class="btn btn-primary">
+    <i class="bi bi-person-plus me-1"></i>Inscrire un joueur
+  </a>
+</div>
+
+<div class="row g-3 mb-4">
+  {% for division in divisions %}
+    <div class="col-12 col-md-4">
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <h2 class="h6">{{ division.name }}</h2>
+          <p class="mb-1">
+            {{ division.registered_count }}{% if division.capacity_max %} / {{ division.capacity_max }}{% else %} (illimitée){% endif %}
+            joueur(s)
+          </p>
+          {% if division.capacity_max %}
+            {% widthratio division.registered_count division.capacity_max 100 as pct %}
+            <div class="progress" style="height: 6px;">
+              <div class="progress-bar" style="width: {{ pct }}%;"></div>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  {% endfor %}
+</div>
+
+<div class="table-responsive">
+  <table class="table table-hover align-middle bg-white">
+    <thead>
+      <tr><th>Joueur</th><th>Division</th><th>Seed</th><th>Statut</th><th>Origine</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for p in participations %}
+      <tr>
+        <td>{{ p.player }}</td>
+        <td>{{ p.division.name }}</td>
+        <td>{{ p.seed|default:"—" }}</td>
+        <td><span class="badge text-bg-secondary">{{ p.get_status_display }}</span></td>
+        <td>{{ p.get_entry_origin_display }}</td>
+        <td class="text-end">
+          {% if p.status != "WITHDRAWN" %}
+          <form method="post" action="{% url 'participations:withdraw' championship.slug p.pk %}" class="d-inline">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-sm btn-outline-danger"
+                    onclick="return confirm('Retirer ce joueur ?');">Retirer</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6" class="text-center text-muted py-4">Aucune inscription.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

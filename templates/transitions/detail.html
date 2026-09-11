@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}Saison suivante — {{ championship.name }}{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
+  <div>
+    <h1 class="h3 mb-1">Génération de la saison suivante</h1>
+    <p class="text-muted mb-0">{{ championship.name }}</p>
+  </div>
+  <a href="{% url 'championships:detail' championship.slug %}" class="btn btn-outline-secondary btn-sm">
+    Retour au championnat
+  </a>
+</div>
+
+{% if not transition %}
+  <form method="post" action="{% url 'transitions:propose' championship.slug %}">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-primary">
+      Proposer la composition de la saison suivante
+    </button>
+  </form>
+{% else %}
+  <div class="mb-3">
+    <span class="badge text-bg-secondary">{{ transition.get_status_display }}</span>
+    {% if transition.to_championship %}
+      <a href="{% url 'championships:detail' transition.to_championship.slug %}" class="ms-2">
+        Voir {{ transition.to_championship.name }}
+      </a>
+    {% endif %}
+  </div>
+
+  <div class="table-responsive mb-4">
+    <table class="table table-sm align-middle bg-white">
+      <thead><tr><th>Joueur</th><th>De</th><th>Vers</th><th>Mouvement</th><th></th></tr></thead>
+      <tbody>
+        {% for move in moves %}
+        <tr>
+          <td>{{ move.player }}</td>
+          <td>{{ move.from_carryover_key }}</td>
+          <td>{{ move.to_carryover_key|default:"— sortie —" }}</td>
+          <td>
+            <span class="badge
+              {% if move.move_type == 'PROMOTED' %}text-bg-success
+              {% elif move.move_type == 'RELEGATED' %}text-bg-danger
+              {% elif move.move_type == 'MANUAL_OVERRIDE' %}text-bg-warning text-dark
+              {% else %}text-bg-secondary{% endif %}">
+              {{ move.get_move_type_display }}
+            </span>
+          </td>
+          <td>
+            {% if transition.status != "CONFIRMED" %}
+            <form method="post" action="{% url 'transitions:move_edit' championship.slug move.pk %}" class="d-flex gap-1">
+              {% csrf_token %}
+              <select name="to_carryover_key" class="form-select form-select-sm">
+                <option value="">— sortie —</option>
+                {% for division in championship.divisions.all %}
+                  <option value="{{ division.carryover_key }}" {% if move.to_carryover_key == division.carryover_key %}selected{% endif %}>
+                    {{ division.name }}
+                  </option>
+                {% endfor %}
+              </select>
+              <button type="submit" class="btn btn-sm btn-outline-secondary">Modifier</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if confirm_form %}
+  <div class="card shadow-sm p-4" style="max-width: 480px;">
+    <h2 class="h6">Confirmer et créer la nouvelle édition</h2>
+    <form method="post" action="{% url 'transitions:confirm' championship.slug %}">
+      {% csrf_token %}
+      {% for field in confirm_form %}
+        <div class="mb-3">
+          <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+          {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+        </div>
+      {% endfor %}
+      <button type="submit" class="btn btn-success">Confirmer la création</button>
+    </form>
+    <form method="post" action="{% url 'transitions:cancel' championship.slug %}" class="mt-2">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-link text-danger p-0">Annuler la proposition</button>
+    </form>
+  </div>
+  {% endif %}
+{% endif %}
+{% endblock %}

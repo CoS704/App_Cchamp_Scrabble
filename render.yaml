@@ -6,7 +6,7 @@ services:
     runtime: python
     plan: free
     buildCommand: "./build.sh"
-    startCommand: "gunicorn config.wsgi:application"
+    startCommand: "gunicorn config.wsgi:application --workers ${WEB_CONCURRENCY:-4} --timeout 60"
     envVars:
       - key: DJANGO_SETTINGS_MODULE
         value: config.settings.prod

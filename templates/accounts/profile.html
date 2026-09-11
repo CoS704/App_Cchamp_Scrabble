@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block title %}Mon profil{% endblock %}
+
+{% block content %}
+<h1 class="h3 mb-4">Mon profil</h1>
+<div class="row g-4">
+  <div class="col-12 col-md-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-body">
+        <h2 class="h5">Compte</h2>
+        <dl class="row mb-0">
+          <dt class="col-sm-4">Identifiant</dt><dd class="col-sm-8">{{ user.username }}</dd>
+          <dt class="col-sm-4">Nom</dt><dd class="col-sm-8">{{ user.get_full_name|default:"—" }}</dd>
+          <dt class="col-sm-4">E-mail</dt><dd class="col-sm-8">{{ user.email }}</dd>
+          <dt class="col-sm-4">Dernière connexion</dt>
+          <dd class="col-sm-8">{{ user.last_login|default:"—" }}</dd>
+        </dl>
+        <a href="{% url 'accounts:password_change' %}" class="btn btn-outline-secondary btn-sm mt-3">
+          Changer mon mot de passe
+        </a>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-md-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-body">
+        <h2 class="h5">Rôles</h2>
+        {% if staff_roles %}
+          <ul class="list-group list-group-flush mb-0">
+            {% for staff in staff_roles %}
+              <li class="list-group-item d-flex justify-content-between align-items-center">
+                <span>{{ staff.championship }}</span>
+                <span class="badge text-bg-secondary">{{ staff.get_role_display }}</span>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="text-muted mb-0">Aucun rôle d'administration ou d'arbitrage.</p>
+        {% endif %}
+
+        {% if player %}
+          <hr>
+          <h2 class="h5">Profil joueur</h2>
+          <p class="mb-1"><strong>{{ player.full_name }}</strong></p>
+          <p class="text-muted mb-3">{{ player.club|default:"Aucun club renseigné" }}</p>
+
+          <form method="post" class="row g-2 align-items-end">
+            {% csrf_token %}
+            <div class="col-12 col-sm-8">
+              <label class="form-label" for="{{ scrabblego_form.scrabblego_id.id_for_label }}">
+                Identifiant ScrabbleGO
+              </label>
+              {{ scrabblego_form.scrabblego_id }}
+              <div class="form-text">
+                Affiché publiquement (classements) et à vos adversaires, pour vous retrouver sur ScrabbleGO.
+              </div>
+              {% for error in scrabblego_form.scrabblego_id.errors %}
+                <div class="text-danger small">{{ error }}</div>
+              {% endfor %}
+            </div>
+            <div class="col-12 col-sm-4">
+              <button type="submit" class="btn btn-outline-primary">Enregistrer</button>
+            </div>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

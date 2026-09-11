@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block title %}Tableau final — {{ bracket.division.name }}{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
+  <div>
+    <h1 class="h4 mb-1">Tableau final — {{ bracket.division.name }}</h1>
+    <p class="text-muted mb-0">{{ championship.name }}</p>
+  </div>
+  <a href="{% url 'finals:list' championship.slug %}" class="btn btn-outline-secondary btn-sm">Retour</a>
+</div>
+
+{% for group in rounds %}
+<div class="card shadow-sm mb-3">
+  <div class="card-body">
+    <h2 class="h6">{{ group.label }}</h2>
+    {% for a, b in group.games %}
+      <div class="d-flex justify-content-between align-items-center py-2 {% if not forloop.last %}border-bottom{% endif %}">
+        <span>
+          {{ a.participation.player|default:"À déterminer" }}
+          {% if a.match.winner_id == a.participation_id %}<i class="bi bi-trophy-fill text-warning"></i>{% endif %}
+          <span class="text-muted mx-1">vs</span>
+          {{ b.participation.player|default:"À déterminer" }}
+          {% if b.match.winner_id == b.participation_id %}<i class="bi bi-trophy-fill text-warning"></i>{% endif %}
+        </span>
+        <span>
+          {% if a.match %}
+            {% if a.match.result_status == "VALIDATED" %}
+              <span class="fw-bold me-2">{{ a.match.score1 }} - {{ a.match.score2 }}</span>
+            {% endif %}
+            <a href="{% url 'competition:result' championship.slug a.match.pk %}" class="btn btn-sm btn-outline-primary">
+              Résultat
+            </a>
+          {% else %}
+            <span class="text-muted small">En attente des qualifiés</span>
+          {% endif %}
+        </span>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endfor %}
+
+{% if third_place_game %}
+<div class="card shadow-sm mb-3">
+  <div class="card-body">
+    <h2 class="h6">Petite finale</h2>
+    {% with a=third_place_game.0 b=third_place_game.1 %}
+    <div class="d-flex justify-content-between align-items-center py-2">
+      <span>
+        {{ a.participation.player|default:"À déterminer" }}
+        <span class="text-muted mx-1">vs</span>
+        {{ b.participation.player|default:"À déterminer" }}
+      </span>
+      <span>
+        {% if a.match %}
+          {% if a.match.result_status == "VALIDATED" %}
+            <span class="fw-bold me-2">{{ a.match.score1 }} - {{ a.match.score2 }}</span>
+          {% endif %}
+          <a href="{% url 'competition:result' championship.slug a.match.pk %}" class="btn btn-sm btn-outline-primary">
+            Résultat
+          </a>
+        {% else %}
+          <span class="text-muted small">En attente des qualifiés</span>
+        {% endif %}
+      </span>
+    </div>
+    {% endwith %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}
