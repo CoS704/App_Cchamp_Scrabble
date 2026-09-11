@@ -1,0 +1,26 @@
+databases: []
+
+services:
+  - type: web
+    name: scrabble-championship
+    runtime: python
+    plan: free
+    buildCommand: "./build.sh"
+    startCommand: "gunicorn config.wsgi:application"
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.prod
+      - key: PYTHON_VERSION
+        value: "3.12.6"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DEBUG
+        value: "False"
+      - key: ALLOWED_HOSTS
+        sync: false
+      - key: CSRF_TRUSTED_ORIGINS
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: WEB_CONCURRENCY
+        value: "4"
