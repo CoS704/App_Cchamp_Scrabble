@@ -222,6 +222,8 @@ class AuditAction(models.TextChoices):
     BRACKET_GENERATED = "BRACKET_GENERATED", "Tableau final généré"
     TRANSITION_PROPOSED = "TRANSITION_PROPOSED", "Saison suivante proposée"
     TRANSITION_MOVE_ADJUSTED = "TRANSITION_MOVE_ADJUSTED", "Mouvement de transition ajusté"
+    PLAYER_LOGIN_CREATED = "PLAYER_LOGIN_CREATED", "Accès joueur créé"
+    PLAYER_LOGIN_RESET = "PLAYER_LOGIN_RESET", "Mot de passe joueur réinitialisé"
     PLAYER_REGISTERED = "PLAYER_REGISTERED", "Joueur inscrit"
     PLAYER_WITHDRAWN = "PLAYER_WITHDRAWN", "Joueur retiré"
     PLAYER_PROMOTED = "PLAYER_PROMOTED", "Joueur promu"

@@ -1,6 +1,7 @@
 from django.contrib import messages
+from django.core.exceptions import ValidationError
 from django.db.models import Q
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views import View
 from django.views.generic import CreateView, ListView, UpdateView
@@ -9,9 +10,15 @@ from audit.services import log_action
 from core.enums import AuditAction
 from core.permissions import PlayerManagerRequiredMixin
 
-from .forms import PlayerForm, PlayerImportForm
+from .forms import PlayerForm, PlayerImportForm, PlayerLoginForm
 from .models import Player
-from .services import import_players_from_csv
+from .services import (
+    create_player_login,
+    import_players_from_csv,
+    reset_player_login_password,
+    suggest_email,
+    suggest_username,
+)
 
 
 class PlayerListView(PlayerManagerRequiredMixin, ListView):
@@ -20,7 +27,7 @@ class PlayerListView(PlayerManagerRequiredMixin, ListView):
     paginate_by = 50
 
     def get_queryset(self):
-        queryset = Player.objects.order_by("last_name", "first_name")
+        queryset = Player.objects.select_related("user").order_by("last_name", "first_name")
         query = self.request.GET.get("q", "").strip()
         if query:
             queryset = queryset.filter(
@@ -70,6 +77,78 @@ class PlayerUpdateView(PlayerManagerRequiredMixin, UpdateView):
 
     def get_success_url(self):
         return reverse("players:list")
+
+
+class PlayerLoginCreateView(PlayerManagerRequiredMixin, View):
+    """Création du compte de connexion d'un joueur, avec mot de passe
+    temporaire généré — à communiquer au joueur immédiatement, il ne sera
+    plus jamais affiché ensuite (§ jamais de secret conservé en clair)."""
+
+    template_name = "players/login_create.html"
+
+    def get_player(self):
+        return get_object_or_404(Player, slug=self.kwargs["slug"])
+
+    def get(self, request, *args, **kwargs):
+        player = self.get_player()
+        if player.user_id:
+            messages.info(request, "Ce joueur a déjà un compte.")
+            return redirect("players:list")
+        username = suggest_username(player)
+        form = PlayerLoginForm(initial={"username": username, "email": suggest_email(username)})
+        return render(request, self.template_name, {"form": form, "player": player})
+
+    def post(self, request, *args, **kwargs):
+        player = self.get_player()
+        if player.user_id:
+            messages.info(request, "Ce joueur a déjà un compte.")
+            return redirect("players:list")
+        form = PlayerLoginForm(request.POST)
+        if form.is_valid():
+            try:
+                user, password = create_player_login(
+                    player,
+                    username=form.cleaned_data["username"],
+                    email=form.cleaned_data["email"],
+                )
+            except ValidationError as exc:
+                form.add_error(None, "; ".join(exc.messages) if hasattr(exc, "messages") else str(exc))
+            else:
+                log_action(
+                    actor=request.user,
+                    action=AuditAction.PLAYER_LOGIN_CREATED,
+                    target=player,
+                    request=request,
+                )
+                return render(
+                    request,
+                    "players/login_credentials.html",
+                    {"player": player, "username": user.username, "password": password, "created": True},
+                )
+        return render(request, self.template_name, {"form": form, "player": player})
+
+
+class PlayerLoginResetView(PlayerManagerRequiredMixin, View):
+    """Réinitialise le mot de passe d'un joueur déjà pourvu d'un compte."""
+
+    def post(self, request, *args, **kwargs):
+        player = get_object_or_404(Player, slug=kwargs["slug"])
+        try:
+            password = reset_player_login_password(player)
+        except ValidationError as exc:
+            messages.error(request, "; ".join(exc.messages) if hasattr(exc, "messages") else str(exc))
+            return redirect("players:list")
+        log_action(
+            actor=request.user,
+            action=AuditAction.PLAYER_LOGIN_RESET,
+            target=player,
+            request=request,
+        )
+        return render(
+            request,
+            "players/login_credentials.html",
+            {"player": player, "username": player.user.username, "password": password, "created": False},
+        )
 
 
 class PlayerImportView(PlayerManagerRequiredMixin, View):

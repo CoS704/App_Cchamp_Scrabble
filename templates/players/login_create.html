@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}Créer un accès — {{ player.full_name }}{% endblock %}
+
+{% block content %}
+<h1 class="h4 mb-1">Créer l'accès de connexion</h1>
+<p class="text-muted mb-4">{{ player.full_name }}</p>
+
+<form method="post" class="card shadow-sm p-4" style="max-width: 560px;">
+  {% csrf_token %}
+  {% if form.non_field_errors %}
+    <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+  {% endif %}
+  {% for field in form %}
+    <div class="mb-3">
+      <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+      {{ field }}
+      {% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+      {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+    </div>
+  {% endfor %}
+  <p class="text-muted small">
+    Un mot de passe temporaire est généré automatiquement à la création — il ne sera
+    affiché qu'une seule fois, à l'écran suivant, à copier immédiatement.
+  </p>
+  <button type="submit" class="btn btn-primary">Créer l'accès</button>
+  <a href="{% url 'players:list' %}" class="btn btn-link">Annuler</a>
+</form>
+{% endblock %}

@@ -19,7 +19,7 @@ class ParticipationListView(ChampionshipScopedMixin, ChampionshipAdminRequiredMi
 
     def get_queryset(self):
         return (
-            self.championship.participations.select_related("player", "division")
+            self.championship.participations.select_related("player", "player__user", "division")
             .order_by("division__level", "seed", "player__last_name")
         )
 

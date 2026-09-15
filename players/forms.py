@@ -35,6 +35,30 @@ class PlayerScrabbleGoForm(BootstrapFormMixin, forms.ModelForm):
         fields = ["scrabblego_id"]
 
 
+class PlayerLoginForm(BootstrapFormMixin, forms.Form):
+    """Création du compte de connexion d'un joueur (§ accès joueur) : seuls
+    l'identifiant et l'e-mail se saisissent, le mot de passe est généré."""
+
+    username = forms.CharField(label="Identifiant", max_length=150)
+    email = forms.EmailField(label="E-mail")
+
+    def clean_username(self):
+        from django.contrib.auth import get_user_model
+
+        username = self.cleaned_data["username"].strip()
+        if get_user_model().objects.filter(username=username).exists():
+            raise forms.ValidationError("Cet identifiant est déjà utilisé.")
+        return username
+
+    def clean_email(self):
+        from django.contrib.auth import get_user_model
+
+        email = self.cleaned_data["email"].strip().lower()
+        if get_user_model().objects.filter(email=email).exists():
+            raise forms.ValidationError("Cette adresse e-mail est déjà utilisée.")
+        return email
+
+
 class PlayerImportForm(BootstrapFormMixin, forms.Form):
     csv_file = forms.FileField(
         label="Fichier CSV",

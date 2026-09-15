@@ -1,9 +1,17 @@
 """Tests d'import CSV des joueurs (§60)."""
+from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.exceptions import ValidationError
 from django.test import TestCase
 
+from core.factories import make_user
 from players.models import Player
-from players.services import import_players_from_csv
+from players.services import (
+    create_player_login,
+    import_players_from_csv,
+    reset_player_login_password,
+    suggest_username,
+)
 
 
 class CsvImportTests(TestCase):
@@ -57,3 +65,61 @@ class ScrabbleGoIdVisibilityTests(TestCase):
         resp = self.client.get(f"/classements/{championship.slug}/")
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "alice_sg_42")
+
+
+class PlayerLoginAccessTests(TestCase):
+    """Un admin doit pouvoir créer/partager l'accès de connexion d'un joueur
+    qui n'en a pas — sans quoi il n'a aucun moyen de le lui transmettre."""
+
+    def setUp(self):
+        self.admin = make_user("login_admin_t", group="Super Admin")
+        self.player = Player.objects.create(first_name="Nadia", last_name="Access")
+
+    def test_create_player_login_sets_password_and_links_user(self):
+        user, password = create_player_login(
+            self.player, username="nadia.access", email="nadia@example.invalid"
+        )
+        self.player.refresh_from_db()
+        self.assertEqual(self.player.user_id, user.id)
+        self.assertTrue(user.check_password(password))
+
+    def test_cannot_create_login_twice(self):
+        create_player_login(self.player, username="nadia.access", email="nadia@example.invalid")
+        with self.assertRaises(ValidationError):
+            create_player_login(self.player, username="another", email="other@example.invalid")
+
+    def test_reset_requires_existing_account(self):
+        with self.assertRaises(ValidationError):
+            reset_player_login_password(self.player)
+
+    def test_reset_changes_password(self):
+        _, old_password = create_player_login(
+            self.player, username="nadia.access", email="nadia@example.invalid"
+        )
+        new_password = reset_player_login_password(self.player)
+        self.player.user.refresh_from_db()
+        self.assertNotEqual(old_password, new_password)
+        self.assertTrue(self.player.user.check_password(new_password))
+        self.assertFalse(self.player.user.check_password(old_password))
+
+    def test_suggest_username_avoids_collision(self):
+        get_user_model().objects.create_user(username="nadia.access", password="x")
+        suggested = suggest_username(self.player)
+        self.assertNotEqual(suggested, "nadia.access")
+
+    def test_view_creates_login_and_shows_credentials_once(self):
+        self.client.force_login(self.admin)
+        resp = self.client.post(
+            f"/gestion/joueurs/{self.player.slug}/creer-acces/",
+            {"username": "nadia.access", "email": "nadia@example.invalid"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "nadia.access")
+        self.player.refresh_from_db()
+        self.assertIsNotNone(self.player.user_id)
+
+    def test_view_requires_player_manager_permission(self):
+        stranger = make_user("login_stranger_t")
+        self.client.force_login(stranger)
+        resp = self.client.get(f"/gestion/joueurs/{self.player.slug}/creer-acces/")
+        self.assertEqual(resp.status_code, 403)
