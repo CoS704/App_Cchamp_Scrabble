@@ -27,6 +27,9 @@
         <td>{{ c.divisions.count }}</td>
         <td class="text-end">
           <a href="{% url 'championships:detail' c.slug %}" class="btn btn-sm btn-outline-secondary">Gérer</a>
+          {% if c.status == "DRAFT" %}
+            <a href="{% url 'championships:delete' c.slug %}" class="btn btn-sm btn-outline-danger">Supprimer</a>
+          {% endif %}
         </td>
       </tr>
       {% empty %}

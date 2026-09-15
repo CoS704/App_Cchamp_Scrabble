@@ -123,3 +123,44 @@ class PlayerLoginAccessTests(TestCase):
         self.client.force_login(stranger)
         resp = self.client.get(f"/gestion/joueurs/{self.player.slug}/creer-acces/")
         self.assertEqual(resp.status_code, 403)
+
+
+class PlayerDeleteTests(TestCase):
+    """Un joueur créé par erreur doit pouvoir être supprimé — mais jamais un
+    joueur déjà inscrit à un championnat (historique de matchs réel)."""
+
+    def setUp(self):
+        self.admin = make_user("del_player_admin_t", group="Super Admin")
+
+    def test_unregistered_player_is_deleted(self):
+        player = Player.objects.create(first_name="Léa", last_name="Suppr")
+        self.client.force_login(self.admin)
+
+        resp = self.client.post(f"/gestion/joueurs/{player.slug}/supprimer/")
+
+        self.assertRedirects(resp, "/gestion/joueurs/")
+        self.assertFalse(Player.objects.filter(pk=player.pk).exists())
+
+    def test_deleting_player_also_removes_their_login(self):
+        player = Player.objects.create(first_name="Léa", last_name="AvecCompte")
+        user, _ = create_player_login(player, username="lea.avec", email="lea@example.invalid")
+        self.client.force_login(self.admin)
+
+        self.client.post(f"/gestion/joueurs/{player.slug}/supprimer/")
+
+        self.assertFalse(get_user_model().objects.filter(pk=user.pk).exists())
+
+    def test_registered_player_cannot_be_deleted(self):
+        from core.enums import ChampionshipStatus
+        from core.factories import make_championship, make_division, register
+
+        player = Player.objects.create(first_name="Léa", last_name="Inscrite")
+        championship = make_championship(name="Del Player Championship", season="delp-1")
+        division = make_division(championship)
+        register(championship, player, division)
+        self.client.force_login(self.admin)
+
+        resp = self.client.post(f"/gestion/joueurs/{player.slug}/supprimer/")
+
+        self.assertRedirects(resp, "/gestion/joueurs/")
+        self.assertTrue(Player.objects.filter(pk=player.pk).exists())

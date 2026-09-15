@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block title %}Supprimer {{ championship.name }}{% endblock %}
+
+{% block content %}
+<div class="card shadow-sm p-4" style="max-width: 640px;">
+  <h1 class="h5 text-danger">Supprimer « {{ championship.name }} »</h1>
+
+  {% if can_delete %}
+    <p class="text-muted">
+      Cette action est <strong>définitive</strong> : divisions, inscriptions,
+      règles de promotion/relégation et paramètres de cette édition seront
+      supprimés avec elle. Elle est encore en brouillon, donc aucun match ni
+      résultat n'y est rattaché.
+    </p>
+    <form method="post">
+      {% csrf_token %}
+      <div class="mb-3">
+        <label class="form-label" for="confirm_name">
+          Pour confirmer, saisissez le nom exact du championnat :
+          <strong>{{ championship.name }}</strong>
+        </label>
+        <input type="text" name="confirm_name" id="confirm_name" class="form-control" autocomplete="off" required>
+      </div>
+      <button type="submit" class="btn btn-danger">Supprimer définitivement</button>
+      <a href="{% url 'championships:detail' championship.slug %}" class="btn btn-link">Annuler</a>
+    </form>
+  {% else %}
+    <div class="alert alert-warning">
+      Ce championnat a déjà quitté le statut « brouillon »
+      ({{ championship.get_status_display }}) : il porte probablement des
+      inscriptions, un calendrier ou des résultats réels. Il ne peut plus
+      être supprimé — c'est voulu, pour ne jamais perdre l'historique d'une
+      édition qui a réellement commencé.
+    </div>
+    <a href="{% url 'championships:detail' championship.slug %}" class="btn btn-outline-secondary">Retour</a>
+  {% endif %}
+</div>
+{% endblock %}

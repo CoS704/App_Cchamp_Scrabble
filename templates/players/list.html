@@ -56,6 +56,19 @@
         </td>
         <td class="text-end">
           <a href="{% url 'players:update' player.slug %}" class="btn btn-sm btn-outline-secondary">Modifier</a>
+          {% if not player.participations_count %}
+            <form method="post" action="{% url 'players:delete' player.slug %}" class="d-inline">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-sm btn-outline-danger"
+                      onclick="return confirm('Supprimer définitivement {{ player.full_name }} ?');">
+                Supprimer
+              </button>
+            </form>
+          {% else %}
+            <span class="d-inline-block" tabindex="0" title="Déjà inscrit à un championnat — retirez-le d'abord de chaque édition pour pouvoir le supprimer.">
+              <button type="button" class="btn btn-sm btn-outline-danger" disabled>Supprimer</button>
+            </span>
+          {% endif %}
         </td>
       </tr>
       {% empty %}

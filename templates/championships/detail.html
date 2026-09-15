@@ -44,6 +44,11 @@
     <a href="{% url 'transitions:detail' championship.slug %}" class="btn btn-primary btn-sm">
       <i class="bi bi-arrow-repeat me-1"></i>Saison suivante
     </a>
+    {% if is_global_admin and championship.status == "DRAFT" %}
+      <a href="{% url 'championships:delete' championship.slug %}" class="btn btn-outline-danger btn-sm">
+        <i class="bi bi-trash me-1"></i>Supprimer
+      </a>
+    {% endif %}
   </div>
 </div>
 

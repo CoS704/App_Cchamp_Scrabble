@@ -199,6 +199,8 @@ class AuditAction(models.TextChoices):
     DIVISION_CREATED = "DIVISION_CREATED", "Division créée"
     DIVISION_UPDATED = "DIVISION_UPDATED", "Division modifiée"
     DIVISION_DELETED = "DIVISION_DELETED", "Division supprimée"
+    CHAMPIONSHIP_DELETED = "CHAMPIONSHIP_DELETED", "Championnat supprimé"
+    PLAYER_DELETED = "PLAYER_DELETED", "Joueur supprimé"
     MOVEMENT_RULE_CREATED = "MOVEMENT_RULE_CREATED", "Règle de mouvement créée"
     MOVEMENT_RULE_DELETED = "MOVEMENT_RULE_DELETED", "Règle de mouvement supprimée"
     PLAYER_CREATED = "PLAYER_CREATED", "Joueur créé"

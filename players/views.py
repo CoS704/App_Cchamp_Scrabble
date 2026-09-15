@@ -1,6 +1,6 @@
 from django.contrib import messages
 from django.core.exceptions import ValidationError
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views import View
@@ -27,7 +27,11 @@ class PlayerListView(PlayerManagerRequiredMixin, ListView):
     paginate_by = 50
 
     def get_queryset(self):
-        queryset = Player.objects.select_related("user").order_by("last_name", "first_name")
+        queryset = (
+            Player.objects.select_related("user")
+            .annotate(participations_count=Count("participations", distinct=True))
+            .order_by("last_name", "first_name")
+        )
         query = self.request.GET.get("q", "").strip()
         if query:
             queryset = queryset.filter(
@@ -149,6 +153,39 @@ class PlayerLoginResetView(PlayerManagerRequiredMixin, View):
             "players/login_credentials.html",
             {"player": player, "username": player.user.username, "password": password, "created": False},
         )
+
+
+class PlayerDeleteView(PlayerManagerRequiredMixin, View):
+    """Suppression d'un joueur — refusée dès qu'il est ou a été inscrit à un
+    championnat, pour ne jamais faire disparaître un historique de matchs
+    réel (retirer un joueur d'une édition précise reste possible depuis
+    l'écran Inscriptions)."""
+
+    def post(self, request, *args, **kwargs):
+        player = get_object_or_404(Player, slug=kwargs["slug"])
+        if player.participations.exists():
+            messages.error(
+                request,
+                f"Impossible de supprimer « {player} » : il/elle a déjà été inscrit(e) à "
+                "un championnat. Retirez-le/la de chaque édition d'abord, ou désactivez "
+                "son profil plutôt que de le supprimer.",
+            )
+            return redirect("players:list")
+
+        name = str(player)
+        user = player.user
+        log_action(
+            actor=request.user,
+            action=AuditAction.PLAYER_DELETED,
+            target=player,
+            request=request,
+            changes={"deleted_player": name},
+        )
+        player.delete()
+        if user:
+            user.delete()
+        messages.success(request, f"Joueur « {name} » supprimé.")
+        return redirect("players:list")
 
 
 class PlayerImportView(PlayerManagerRequiredMixin, View):

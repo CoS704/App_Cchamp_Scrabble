@@ -11,4 +11,5 @@ urlpatterns = [
     path("<slug:slug>/modifier/", views.PlayerUpdateView.as_view(), name="update"),
     path("<slug:slug>/creer-acces/", views.PlayerLoginCreateView.as_view(), name="login_create"),
     path("<slug:slug>/reinitialiser-mot-de-passe/", views.PlayerLoginResetView.as_view(), name="login_reset"),
+    path("<slug:slug>/supprimer/", views.PlayerDeleteView.as_view(), name="delete"),
 ]

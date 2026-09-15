@@ -3,10 +3,10 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 
-from championships.models import Division, PromotionRelegationRule
+from championships.models import Championship, Division, PromotionRelegationRule
 from championships.services import regenerate_tiebreak_chain
-from core.enums import MovementType, PrimaryTiebreak, PromotionMethod
-from core.factories import make_championship, make_division
+from core.enums import ChampionshipStatus, MovementType, PrimaryTiebreak, PromotionMethod
+from core.factories import make_championship, make_division, make_user
 
 
 class ChampionshipInitializationTests(TestCase):
@@ -86,3 +86,59 @@ class PromotionRelegationRuleValidationTests(TestCase):
                     championship=championship, movement_type=MovementType.PROMOTION,
                     source_division=d1, target_division=d1, method=PromotionMethod.TOP_N, value_n=1,
                 )
+
+
+class ChampionshipDeleteTests(TestCase):
+    """Un admin doit pouvoir supprimer un championnat créé par erreur — mais
+    jamais une édition qui a réellement démarré (§ jamais perdre l'historique)."""
+
+    def setUp(self):
+        self.global_admin = make_user("del_champ_admin_t", group="Super Admin")
+
+    def test_draft_championship_deleted_with_matching_name(self):
+        championship = make_championship(name="Draft To Delete", season="del-1")
+        self.client.force_login(self.global_admin)
+
+        resp = self.client.post(
+            f"/gestion/championnats/{championship.slug}/supprimer/",
+            {"confirm_name": "Draft To Delete"},
+        )
+
+        self.assertRedirects(resp, "/gestion/championnats/")
+        self.assertFalse(Championship.objects.filter(pk=championship.pk).exists())
+
+    def test_mismatched_name_cancels_deletion(self):
+        championship = make_championship(name="Draft Keep", season="del-2")
+        self.client.force_login(self.global_admin)
+
+        self.client.post(
+            f"/gestion/championnats/{championship.slug}/supprimer/",
+            {"confirm_name": "Wrong Name"},
+        )
+
+        self.assertTrue(Championship.objects.filter(pk=championship.pk).exists())
+
+    def test_non_draft_championship_cannot_be_deleted(self):
+        championship = make_championship(
+            name="Live Championship", season="del-3", status=ChampionshipStatus.IN_PROGRESS
+        )
+        self.client.force_login(self.global_admin)
+
+        self.client.post(
+            f"/gestion/championnats/{championship.slug}/supprimer/",
+            {"confirm_name": "Live Championship"},
+        )
+
+        self.assertTrue(Championship.objects.filter(pk=championship.pk).exists())
+
+    def test_scoped_staff_admin_cannot_delete(self):
+        from accounts.models import ChampionshipStaff
+
+        championship = make_championship(name="Scoped Championship", season="del-4")
+        staff_admin = make_user("del_champ_staff_t")
+        ChampionshipStaff.objects.create(championship=championship, user=staff_admin, role="ADMIN")
+        self.client.force_login(staff_admin)
+
+        resp = self.client.get(f"/gestion/championnats/{championship.slug}/supprimer/")
+
+        self.assertEqual(resp.status_code, 403)

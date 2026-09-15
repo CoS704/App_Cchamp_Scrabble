@@ -7,7 +7,7 @@ from django.views.generic import CreateView, DetailView, ListView, UpdateView
 
 from audit.services import log_action
 from core.enums import AuditAction, ChampionshipStatus
-from core.permissions import ChampionshipAdminRequiredMixin, GlobalAdminRequiredMixin
+from core.permissions import ChampionshipAdminRequiredMixin, GlobalAdminRequiredMixin, is_global_admin
 
 from . import services
 from .forms import (
@@ -69,6 +69,7 @@ class ChampionshipDetailView(ChampionshipScopedMixin, ChampionshipAdminRequiredM
             "source_division", "target_division"
         )
         context["tiebreaks"] = self.championship.tiebreaks.filter(is_active=True)
+        context["is_global_admin"] = is_global_admin(self.request.user)
         return context
 
 
@@ -121,6 +122,46 @@ class ChampionshipSettingsUpdateView(
 
     def get_success_url(self):
         return reverse("championships:detail", kwargs={"slug": self.championship.slug})
+
+
+class ChampionshipDeleteView(ChampionshipScopedMixin, GlobalAdminRequiredMixin, View):
+    """Suppression définitive d'une édition — réservée aux administrateurs
+    globaux (comme la création) et seulement tant qu'elle est en brouillon :
+    au-delà, elle porte des inscriptions/matchs/résultats réels qu'on ne
+    supprime jamais en un clic (cf. DivisionDeleteView, même principe)."""
+
+    def get(self, request, *args, **kwargs):
+        can_delete = self.championship.status == ChampionshipStatus.DRAFT
+        return render(
+            request,
+            "championships/delete_confirm.html",
+            {"championship": self.championship, "can_delete": can_delete},
+        )
+
+    def post(self, request, *args, **kwargs):
+        if self.championship.status != ChampionshipStatus.DRAFT:
+            messages.error(
+                request,
+                "Seul un championnat encore en brouillon peut être supprimé. "
+                "Une édition déjà lancée doit être conservée pour son historique.",
+            )
+            return redirect("championships:detail", slug=self.championship.slug)
+        if request.POST.get("confirm_name", "").strip() != self.championship.name:
+            messages.error(request, "Le nom saisi ne correspond pas : suppression annulée.")
+            return redirect("championships:delete", slug=self.championship.slug)
+
+        name = self.championship.name
+        season = self.championship.season
+        log_action(
+            actor=request.user,
+            action=AuditAction.CHAMPIONSHIP_DELETED,
+            target=self.championship,
+            request=request,
+            changes={"deleted_championship": name, "season": season},
+        )
+        self.championship.delete()
+        messages.success(request, f"Championnat « {name} » ({season}) supprimé.")
+        return redirect("championships:list")
 
 
 class LockRulesView(ChampionshipScopedMixin, ChampionshipAdminRequiredMixin, View):
