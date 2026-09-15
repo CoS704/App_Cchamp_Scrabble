@@ -30,6 +30,22 @@ def register_participation(*, championship, player, division, seed=None):
 
 
 def withdraw_participation(participation):
+    """Retire un joueur d'un championnat.
+
+    Si aucun match n'a été joué sous cette inscription, il n'y a rien à
+    préserver : on supprime la ligne plutôt que de la garder pour toujours
+    comme une inscription fantôme « Retiré » (ce qui bloquait aussi, sans
+    raison, la suppression du joueur lui-même — ``ChampionshipParticipation.
+    player`` est protégé tant qu'existe une inscription, même retirée).
+    Dès qu'un match existe, l'historique réel est conservé : on se contente
+    de marquer le statut, comme avant.
+    """
+    has_match_history = (
+        participation.matches_as_p1.exists() or participation.matches_as_p2.exists()
+    )
+    if not has_match_history:
+        participation.delete()
+        return None
     participation.status = ParticipationStatus.WITHDRAWN
     participation.save(update_fields=["status", "updated_at"])
     return participation

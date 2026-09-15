@@ -53,3 +53,69 @@ class RegistrationTests(TestCase):
         register_participation(championship=self.championship, player=self.p2, division=self.division)
         withdraw_participation(p)
         register_participation(championship=self.championship, player=self.p3, division=self.division)
+
+
+class WithdrawParticipationTests(TestCase):
+    """Retirer un joueur qui n'a joué aucun match doit effacer l'inscription
+    (pas de fantôme « Retiré » éternel, et le joueur redevient supprimable) ;
+    un joueur avec un historique de matchs réel garde son inscription,
+    simplement marquée retirée (§ jamais perdre un historique réel)."""
+
+    def setUp(self):
+        from core.enums import PhaseKind
+        from competition.models import Phase
+
+        self.championship = make_championship(name="Withdraw Championship", season="wd-1")
+        self.division = make_division(self.championship)
+        self.phase = Phase.objects.create(
+            championship=self.championship, division=self.division, kind=PhaseKind.LEAGUE, order=1, name="Ligue"
+        )
+
+    def test_withdraw_without_match_history_deletes_the_row(self):
+        p = register_participation(
+            championship=self.championship, player=make_player("A", "Wd"), division=self.division
+        )
+        result = withdraw_participation(p)
+        self.assertIsNone(result)
+        self.assertFalse(ChampionshipParticipation.objects.filter(pk=p.pk).exists())
+
+    def test_withdraw_with_match_history_keeps_the_row_marked_withdrawn(self):
+        from core.enums import ParticipationStatus
+        from competition.models import Match
+
+        p1 = register_participation(
+            championship=self.championship, player=make_player("A", "Wd"), division=self.division
+        )
+        p2 = register_participation(
+            championship=self.championship, player=make_player("B", "Wd"), division=self.division
+        )
+        Match.objects.create(
+            championship=self.championship, division=self.division, phase=self.phase,
+            player1=p1, player2=p2, pair_key=Match.compute_pair_key(p1.id, p2.id),
+        )
+
+        result = withdraw_participation(p1)
+
+        self.assertIsNotNone(result)
+        p1.refresh_from_db()
+        self.assertEqual(p1.status, ParticipationStatus.WITHDRAWN)
+
+    def test_withdrawing_only_participation_makes_player_deletable(self):
+        from core.factories import make_user
+
+        player = make_player("Free", "ToDelete")
+        participation = register_participation(
+            championship=self.championship, player=player, division=self.division
+        )
+        admin = make_user("withdraw_admin_t", group="Super Admin")
+        self.client.force_login(admin)
+
+        self.client.post(
+            f"/gestion/championnats/{self.championship.slug}/joueurs/{participation.pk}/retirer/"
+        )
+        resp = self.client.post(f"/gestion/joueurs/{player.slug}/supprimer/")
+
+        from players.models import Player
+
+        self.assertRedirects(resp, "/gestion/joueurs/")
+        self.assertFalse(Player.objects.filter(pk=player.pk).exists())

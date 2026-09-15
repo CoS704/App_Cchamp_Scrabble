@@ -66,13 +66,27 @@ class ParticipationCreateView(ChampionshipScopedMixin, ChampionshipAdminRequired
 class ParticipationWithdrawView(ChampionshipScopedMixin, ChampionshipAdminRequiredMixin, View):
     def post(self, request, *args, **kwargs):
         participation = get_object_or_404(self.championship.participations, pk=kwargs["pk"])
-        withdraw_participation(participation)
-        log_action(
-            actor=request.user,
-            action=AuditAction.PLAYER_WITHDRAWN,
-            target=participation,
-            championship=self.championship,
-            request=request,
-        )
-        messages.success(request, f"{participation.player} retiré du championnat.")
+        player_label = str(participation.player)
+        result = withdraw_participation(participation)
+        if result is None:
+            log_action(
+                actor=request.user,
+                action=AuditAction.PLAYER_WITHDRAWN,
+                championship=self.championship,
+                request=request,
+                changes={"removed_participation": player_label},
+            )
+            messages.success(
+                request,
+                f"{player_label} retiré du championnat (aucun match joué : l'inscription a été supprimée).",
+            )
+        else:
+            log_action(
+                actor=request.user,
+                action=AuditAction.PLAYER_WITHDRAWN,
+                target=participation,
+                championship=self.championship,
+                request=request,
+            )
+            messages.success(request, f"{player_label} retiré du championnat.")
         return redirect("participations:list", slug=self.championship.slug)
