@@ -1,5 +1,6 @@
 from django import forms
 from django.contrib import messages
+from django.db.models.deletion import ProtectedError, RestrictedError
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views import View
@@ -152,14 +153,23 @@ class ChampionshipDeleteView(ChampionshipScopedMixin, GlobalAdminRequiredMixin, 
 
         name = self.championship.name
         season = self.championship.season
+        try:
+            self.championship.delete()
+        except (ProtectedError, RestrictedError):
+            # Filet de sécurité : une relation protégée qu'on n'a pas prévue
+            # a bloqué la suppression — jamais un 500 brut pour l'admin.
+            messages.error(
+                request,
+                "Suppression impossible : des données liées à ce championnat "
+                "en bloquent la suppression.",
+            )
+            return redirect("championships:detail", slug=self.championship.slug)
         log_action(
             actor=request.user,
             action=AuditAction.CHAMPIONSHIP_DELETED,
-            target=self.championship,
             request=request,
             changes={"deleted_championship": name, "season": season},
         )
-        self.championship.delete()
         messages.success(request, f"Championnat « {name} » ({season}) supprimé.")
         return redirect("championships:list")
 

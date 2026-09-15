@@ -91,7 +91,8 @@ class Match(TimeStampedModel):
         "championships.Championship", on_delete=models.CASCADE, related_name="matches"
     )
     division = models.ForeignKey(
-        "championships.Division", on_delete=models.PROTECT, related_name="matches"
+        # RESTRICT plutôt que PROTECT : voir participations.ChampionshipParticipation.division.
+        "championships.Division", on_delete=models.RESTRICT, related_name="matches"
     )
     phase = models.ForeignKey(Phase, on_delete=models.CASCADE, related_name="matches")
     matchday = models.ForeignKey(
@@ -102,13 +103,14 @@ class Match(TimeStampedModel):
         related_name="matches",
     )
     player1 = models.ForeignKey(
+        # RESTRICT plutôt que PROTECT : voir participations.ChampionshipParticipation.division.
         "participations.ChampionshipParticipation",
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="matches_as_p1",
     )
     player2 = models.ForeignKey(
         "participations.ChampionshipParticipation",
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         null=True,
         blank=True,
         related_name="matches_as_p2",

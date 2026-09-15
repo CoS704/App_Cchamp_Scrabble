@@ -142,3 +142,40 @@ class ChampionshipDeleteTests(TestCase):
         resp = self.client.get(f"/gestion/championnats/{championship.slug}/supprimer/")
 
         self.assertEqual(resp.status_code, 403)
+
+    def test_draft_championship_with_registered_players_and_matches_is_deleted(self):
+        """Régression : un championnat brouillon avec des inscriptions, un
+        calendrier généré et des règles de promotion/relégation renvoyait un
+        500 (ProtectedError) au lieu d'être supprimé — Division/Match/
+        Participation utilisaient PROTECT au lieu de RESTRICT, qui bloque
+        même quand tout disparaît ensemble dans la même cascade."""
+        from competition.models import Match, Phase
+        from championships.models import PromotionRelegationRule
+        from core.enums import MovementType, PromotionMethod
+        from core.factories import make_division, make_player, register
+
+        championship = make_championship(name="Draft With Data", season="del-5")
+        d1 = make_division(championship, name="D1", level=1, carryover_key="d1")
+        d2 = make_division(championship, name="D2", level=2, carryover_key="d2")
+        p1 = register(championship, make_player("A", "Del"), d1)
+        p2 = register(championship, make_player("B", "Del"), d1)
+        phase = Phase.objects.create(
+            championship=championship, division=d1, kind="LEAGUE", order=1, name="Ligue"
+        )
+        Match.objects.create(
+            championship=championship, division=d1, phase=phase, player1=p1, player2=p2,
+            pair_key=Match.compute_pair_key(p1.id, p2.id),
+        )
+        PromotionRelegationRule.objects.create(
+            championship=championship, movement_type=MovementType.PROMOTION,
+            source_division=d1, target_division=d2, method=PromotionMethod.TOP_N, value_n=1,
+        )
+        self.client.force_login(self.global_admin)
+
+        resp = self.client.post(
+            f"/gestion/championnats/{championship.slug}/supprimer/",
+            {"confirm_name": "Draft With Data"},
+        )
+
+        self.assertRedirects(resp, "/gestion/championnats/")
+        self.assertFalse(Championship.objects.filter(pk=championship.pk).exists())

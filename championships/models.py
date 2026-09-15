@@ -307,14 +307,15 @@ class PromotionRelegationRule(TimeStampedModel):
         "type de mouvement", max_length=12, choices=MovementType.choices
     )
     source_division = models.ForeignKey(
+        # RESTRICT plutôt que PROTECT : voir participations.ChampionshipParticipation.division.
         Division,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="movement_rules_out",
         verbose_name="division source",
     )
     target_division = models.ForeignKey(
         Division,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         null=True,
         blank=True,
         related_name="movement_rules_in",

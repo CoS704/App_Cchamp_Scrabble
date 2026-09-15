@@ -22,7 +22,13 @@ class ChampionshipParticipation(TimeStampedModel):
         "players.Player", on_delete=models.PROTECT, related_name="participations"
     )
     division = models.ForeignKey(
-        "championships.Division", on_delete=models.PROTECT, related_name="participations"
+        # RESTRICT (pas PROTECT) : bloque la suppression directe d'une
+        # division utilisée, mais laisse passer la suppression en cascade
+        # du championnat entier, qui supprime division et participation
+        # ensemble — PROTECT lèverait ProtectedError dans ce cas même si
+        # les deux lignes disparaissent au même moment (§ suppression
+        # championnat).
+        "championships.Division", on_delete=models.RESTRICT, related_name="participations"
     )
     seed = models.PositiveIntegerField("tête de série", null=True, blank=True)
     status = models.CharField(
