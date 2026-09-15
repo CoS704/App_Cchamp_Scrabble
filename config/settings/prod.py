@@ -26,9 +26,15 @@ SECURE_HSTS_PRELOAD = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "DENY"
 
-EMAIL_BACKEND = env(
-    "EMAIL_BACKEND", default="django.core.mail.backends.console.EmailBackend"
+# Si EMAIL_HOST est renseigné (voir config/settings/base.py), on bascule
+# automatiquement sur le SMTP réel sans avoir à définir EMAIL_BACKEND en
+# plus ; sinon les e-mails restent seulement journalisés (console).
+_default_email_backend = (
+    "django.core.mail.backends.smtp.EmailBackend"
+    if EMAIL_HOST
+    else "django.core.mail.backends.console.EmailBackend"
 )
+EMAIL_BACKEND = env("EMAIL_BACKEND", default=_default_email_backend)
 
 LOGGING = {
     "version": 1,

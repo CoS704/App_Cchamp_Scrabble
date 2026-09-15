@@ -15,7 +15,9 @@ from .models import Player
 from .services import (
     create_player_login,
     import_players_from_csv,
+    is_deliverable_email,
     reset_player_login_password,
+    send_login_credentials_email,
     suggest_email,
     suggest_username,
 )
@@ -124,10 +126,20 @@ class PlayerLoginCreateView(PlayerManagerRequiredMixin, View):
                     target=player,
                     request=request,
                 )
+                email_sent = send_login_credentials_email(
+                    player, username=user.username, password=password, created=True, request=request
+                )
                 return render(
                     request,
                     "players/login_credentials.html",
-                    {"player": player, "username": user.username, "password": password, "created": True},
+                    {
+                        "player": player,
+                        "username": user.username,
+                        "password": password,
+                        "created": True,
+                        "email_sent": email_sent,
+                        "email_deliverable": is_deliverable_email(user.email),
+                    },
                 )
         return render(request, self.template_name, {"form": form, "player": player})
 
@@ -148,10 +160,20 @@ class PlayerLoginResetView(PlayerManagerRequiredMixin, View):
             target=player,
             request=request,
         )
+        email_sent = send_login_credentials_email(
+            player, username=player.user.username, password=password, created=False, request=request
+        )
         return render(
             request,
             "players/login_credentials.html",
-            {"player": player, "username": player.user.username, "password": password, "created": False},
+            {
+                "player": player,
+                "username": player.user.username,
+                "password": password,
+                "created": False,
+                "email_sent": email_sent,
+                "email_deliverable": is_deliverable_email(player.user.email),
+            },
         )
 
 

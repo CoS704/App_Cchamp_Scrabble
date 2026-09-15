@@ -40,7 +40,14 @@ class PlayerLoginForm(BootstrapFormMixin, forms.Form):
     l'identifiant et l'e-mail se saisissent, le mot de passe est généré."""
 
     username = forms.CharField(label="Identifiant", max_length=150)
-    email = forms.EmailField(label="E-mail")
+    email = forms.EmailField(
+        label="E-mail",
+        help_text=(
+            "Si le joueur a une vraie adresse, ses identifiants lui seront "
+            "envoyés automatiquement par e-mail. Laisser l'adresse générée "
+            "(@joueurs.local) si vous ne préférez les communiquer vous-même."
+        ),
+    )
 
     def clean_username(self):
         from django.contrib.auth import get_user_model

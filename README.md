@@ -108,6 +108,14 @@ Comptes créés (mot de passe unique, **usage local uniquement**) :
 | `DATABASE_URL` | Connexion PostgreSQL (vide = SQLite) | `postgres://…@…neon.tech/db?sslmode=require` |
 | `CSRF_TRUSTED_ORIGINS` | Origines de confiance CSRF | `https://mon-app.onrender.com` |
 | `TIME_ZONE` | Fuseau horaire | `Europe/Paris` |
+| `EMAIL_HOST` | Serveur SMTP (facultatif — vide = e-mails journalisés seulement) | `smtp.gmail.com` |
+| `EMAIL_PORT` / `EMAIL_USE_TLS` | Port et TLS du serveur SMTP | `587` / `True` |
+| `EMAIL_HOST_USER` / `EMAIL_HOST_PASSWORD` | Identifiants SMTP | mot de passe d'application Gmail, clé API SendGrid… |
+| `DEFAULT_FROM_EMAIL` | Adresse expéditrice | `Championnat de Scrabble <no-reply@…>` |
+
+Avec `EMAIL_HOST` renseigné, les identifiants de connexion créés/réinitialisés
+depuis la fiche joueur (§ accès joueur) sont envoyés automatiquement par
+e-mail au joueur, en plus d'être affichés une fois à l'écran.
 
 ## Déploiement Render + Neon
 

@@ -3,12 +3,15 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 import secrets
 import string
 from dataclasses import dataclass, field
 
 from django.core.exceptions import ValidationError
 from django.utils.text import slugify
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -86,8 +89,17 @@ def suggest_username(player) -> str:
     return username
 
 
+PLACEHOLDER_EMAIL_DOMAIN = "joueurs.local"
+
+
 def suggest_email(username: str) -> str:
-    return f"{username}@joueurs.local"
+    return f"{username}@{PLACEHOLDER_EMAIL_DOMAIN}"
+
+
+def is_deliverable_email(email: str) -> bool:
+    """Faux pour l'adresse-gabarit générée par défaut (§ pas de vraie boîte
+    mail) — jamais de tentative d'envoi vers un domaine fictif."""
+    return bool(email) and not email.lower().endswith(f"@{PLACEHOLDER_EMAIL_DOMAIN}")
 
 
 def create_player_login(player, *, username: str, email: str) -> tuple[object, str]:
@@ -128,3 +140,43 @@ def reset_player_login_password(player) -> str:
     player.user.set_password(password)
     player.user.save(update_fields=["password"])
     return password
+
+
+def send_login_credentials_email(player, *, username: str, password: str, created: bool, request) -> bool:
+    """Envoie l'identifiant/mot de passe par e-mail — retourne ``False`` sans
+    lever d'exception si l'adresse est le gabarit généré, ou si l'envoi
+    échoue (SMTP non configuré, erreur réseau…) : la création/réinitialisation
+    de l'accès ne doit jamais échouer à cause de l'e-mail, seulement son
+    partage automatique."""
+    from django.conf import settings as dj_settings
+    from django.core.mail import send_mail
+    from django.urls import reverse
+
+    email = player.user.email if player.user_id else ""
+    if not is_deliverable_email(email):
+        return False
+
+    login_url = request.build_absolute_uri(reverse("accounts:login"))
+    if created:
+        subject = "Votre accès au Championnat de Scrabble"
+        intro = "Un accès de connexion a été créé pour vous"
+    else:
+        subject = "Votre mot de passe a été réinitialisé — Championnat de Scrabble"
+        intro = "Votre mot de passe a été réinitialisé"
+    message = (
+        f"Bonjour {player.full_name},\n\n"
+        f"{intro} sur la plateforme de gestion du championnat de Scrabble.\n\n"
+        f"Identifiant : {username}\n"
+        f"Mot de passe : {password}\n\n"
+        f"Connectez-vous ici : {login_url}\n\n"
+        "Nous vous recommandons de changer ce mot de passe dès votre première "
+        "connexion (page « Mon profil »)."
+    )
+    try:
+        send_mail(
+            subject, message, dj_settings.DEFAULT_FROM_EMAIL, [email], fail_silently=False
+        )
+    except Exception:
+        logger.exception("Échec d'envoi des identifiants par e-mail à %s", email)
+        return False
+    return True

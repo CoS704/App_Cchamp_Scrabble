@@ -2,6 +2,7 @@
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.exceptions import ValidationError
+from django.core import mail
 from django.test import TestCase
 
 from core.factories import make_user
@@ -9,6 +10,7 @@ from players.models import Player
 from players.services import (
     create_player_login,
     import_players_from_csv,
+    is_deliverable_email,
     reset_player_login_password,
     suggest_username,
 )
@@ -164,3 +166,55 @@ class PlayerDeleteTests(TestCase):
 
         self.assertRedirects(resp, "/gestion/joueurs/")
         self.assertTrue(Player.objects.filter(pk=player.pk).exists())
+
+
+class PlayerLoginEmailTests(TestCase):
+    """Envoi automatique des identifiants par e-mail (§ accès joueur)."""
+
+    def setUp(self):
+        self.admin = make_user("email_admin_t", group="Super Admin")
+
+    def test_is_deliverable_email_rejects_placeholder_domain(self):
+        self.assertFalse(is_deliverable_email("someone@joueurs.local"))
+        self.assertFalse(is_deliverable_email(""))
+        self.assertTrue(is_deliverable_email("someone@example.com"))
+
+    def test_creating_login_with_real_email_sends_credentials(self):
+        player = Player.objects.create(first_name="Mail", last_name="Real")
+        self.client.force_login(self.admin)
+
+        resp = self.client.post(
+            f"/gestion/joueurs/{player.slug}/creer-acces/",
+            {"username": "mail.real", "email": "mail.real@example.com"},
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "identifiants viennent d")
+        self.assertEqual(len(mail.outbox), 1)
+        sent = mail.outbox[0]
+        self.assertEqual(sent.to, ["mail.real@example.com"])
+        self.assertIn("mail.real", sent.body)
+
+    def test_creating_login_with_placeholder_email_sends_nothing(self):
+        player = Player.objects.create(first_name="Mail", last_name="Placeholder")
+        self.client.force_login(self.admin)
+
+        resp = self.client.post(
+            f"/gestion/joueurs/{player.slug}/creer-acces/",
+            {"username": "mail.placeholder", "email": "mail.placeholder@joueurs.local"},
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Aucune adresse e-mail exploitable")
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_reset_with_real_email_sends_new_password(self):
+        player = Player.objects.create(first_name="Mail", last_name="Reset")
+        create_player_login(player, username="mail.reset", email="mail.reset@example.com")
+        self.client.force_login(self.admin)
+
+        resp = self.client.post(f"/gestion/joueurs/{player.slug}/reinitialiser-mot-de-passe/")
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("réinitialisé", mail.outbox[0].subject)
