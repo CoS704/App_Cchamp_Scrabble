@@ -218,3 +218,23 @@ class PlayerLoginEmailTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn("réinitialisé", mail.outbox[0].subject)
+
+    def test_reset_never_500s_even_if_link_building_breaks(self):
+        """Régression : build_absolute_uri() était appelé hors du try/except
+        dans send_login_credentials_email — une exception y remontait telle
+        quelle jusqu'à la vue -> 500, au lieu d'être avalée comme n'importe
+        quel autre échec d'envoi (§ l'e-mail ne doit jamais casser le flux)."""
+        from unittest.mock import patch
+
+        player = Player.objects.create(first_name="Mail", last_name="Broken")
+        create_player_login(player, username="mail.broken", email="mail.broken@example.com")
+        self.client.force_login(self.admin)
+
+        with patch(
+            "django.http.HttpRequest.build_absolute_uri", side_effect=RuntimeError("boom")
+        ):
+            resp = self.client.post(f"/gestion/joueurs/{player.slug}/reinitialiser-mot-de-passe/")
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "L'envoi automatique par e-mail a échoué")
+        self.assertEqual(len(mail.outbox), 0)

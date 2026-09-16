@@ -156,23 +156,28 @@ def send_login_credentials_email(player, *, username: str, password: str, create
     if not is_deliverable_email(email):
         return False
 
-    login_url = request.build_absolute_uri(reverse("accounts:login"))
-    if created:
-        subject = "Votre accès au Championnat de Scrabble"
-        intro = "Un accès de connexion a été créé pour vous"
-    else:
-        subject = "Votre mot de passe a été réinitialisé — Championnat de Scrabble"
-        intro = "Votre mot de passe a été réinitialisé"
-    message = (
-        f"Bonjour {player.full_name},\n\n"
-        f"{intro} sur la plateforme de gestion du championnat de Scrabble.\n\n"
-        f"Identifiant : {username}\n"
-        f"Mot de passe : {password}\n\n"
-        f"Connectez-vous ici : {login_url}\n\n"
-        "Nous vous recommandons de changer ce mot de passe dès votre première "
-        "connexion (page « Mon profil »)."
-    )
+    # Tout ce qui suit (construction de l'URL et du message compris) est
+    # sous filet : un échec ici ne doit jamais faire planter la création ou
+    # la réinitialisation de l'accès elle-même, seulement empêcher son envoi
+    # automatique. C'était le bug : build_absolute_uri() était hors du
+    # try/except et pouvait remonter une exception non interceptée -> 500.
     try:
+        login_url = request.build_absolute_uri(reverse("accounts:login"))
+        if created:
+            subject = "Votre accès au Championnat de Scrabble"
+            intro = "Un accès de connexion a été créé pour vous"
+        else:
+            subject = "Votre mot de passe a été réinitialisé — Championnat de Scrabble"
+            intro = "Votre mot de passe a été réinitialisé"
+        message = (
+            f"Bonjour {player.full_name},\n\n"
+            f"{intro} sur la plateforme de gestion du championnat de Scrabble.\n\n"
+            f"Identifiant : {username}\n"
+            f"Mot de passe : {password}\n\n"
+            f"Connectez-vous ici : {login_url}\n\n"
+            "Nous vous recommandons de changer ce mot de passe dès votre première "
+            "connexion (page « Mon profil »)."
+        )
         send_mail(
             subject, message, dj_settings.DEFAULT_FROM_EMAIL, [email], fail_silently=False
         )
