@@ -114,9 +114,15 @@ def suggest_email(username: str) -> str:
 
 
 def is_deliverable_email(email: str) -> bool:
-    """Faux pour l'adresse-gabarit générée par défaut (§ pas de vraie boîte
-    mail) — jamais de tentative d'envoi vers un domaine fictif."""
-    return bool(email) and not email.lower().endswith(f"@{PLACEHOLDER_EMAIL_DOMAIN}")
+    """Faux pour l'adresse-gabarit générée par défaut, et plus généralement
+    pour tout domaine ``.local`` (RFC 6762 : réservé, jamais routable sur
+    Internet — c'est aussi le domaine des comptes de démo créés par
+    ``seed_demo``) : jamais de tentative d'envoi réel vers une adresse
+    fictive, quelle que soit son origine."""
+    email = email.lower() if email else ""
+    return bool(email) and not (
+        email.endswith(f"@{PLACEHOLDER_EMAIL_DOMAIN}") or email.endswith(".local")
+    )
 
 
 def create_player_login(player, *, username: str, email: str) -> tuple[object, str]:

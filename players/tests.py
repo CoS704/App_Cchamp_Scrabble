@@ -179,6 +179,13 @@ class PlayerLoginEmailTests(TestCase):
         self.assertFalse(is_deliverable_email(""))
         self.assertTrue(is_deliverable_email("someone@example.com"))
 
+    def test_is_deliverable_email_rejects_any_dot_local_domain(self):
+        """seed_demo crée les comptes de démo en @demo.local — un domaine
+        .local (RFC 6762) n'est jamais routable sur Internet, quel que soit
+        le préfixe ; il ne faut jamais tenter d'y envoyer un vrai e-mail."""
+        self.assertFalse(is_deliverable_email("demo_joueur1@demo.local"))
+        self.assertFalse(is_deliverable_email("anything@another.local"))
+
     def test_creating_login_with_real_email_sends_credentials(self):
         player = Player.objects.create(first_name="Mail", last_name="Real")
         self.client.force_login(self.admin)
