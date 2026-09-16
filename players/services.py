@@ -9,6 +9,7 @@ import string
 from dataclasses import dataclass, field
 
 from django.core.exceptions import ValidationError
+from django.core.mail import send_mail
 from django.utils.text import slugify
 
 logger = logging.getLogger(__name__)
@@ -92,6 +93,22 @@ def suggest_username(player) -> str:
 PLACEHOLDER_EMAIL_DOMAIN = "joueurs.local"
 
 
+def safe_login_url(request) -> str:
+    """URL absolue de connexion à afficher/partager — ne lève jamais, même
+    si ``ALLOWED_HOSTS`` est mal configuré (``request.get_host()``/
+    ``build_absolute_uri()`` lèveraient alors ``DisallowedHost``, que ni les
+    templates Django ni cette fonction n'ont à laisser remonter jusqu'à
+    l'utilisateur en 500 pour un simple lien de confort)."""
+    from django.urls import reverse
+
+    path = reverse("accounts:login")
+    try:
+        return request.build_absolute_uri(path)
+    except Exception:
+        logger.warning("Impossible de construire l'URL absolue de connexion (ALLOWED_HOSTS ?)")
+        return path
+
+
 def suggest_email(username: str) -> str:
     return f"{username}@{PLACEHOLDER_EMAIL_DOMAIN}"
 
@@ -149,20 +166,16 @@ def send_login_credentials_email(player, *, username: str, password: str, create
     de l'accès ne doit jamais échouer à cause de l'e-mail, seulement son
     partage automatique."""
     from django.conf import settings as dj_settings
-    from django.core.mail import send_mail
-    from django.urls import reverse
 
     email = player.user.email if player.user_id else ""
     if not is_deliverable_email(email):
         return False
 
-    # Tout ce qui suit (construction de l'URL et du message compris) est
-    # sous filet : un échec ici ne doit jamais faire planter la création ou
-    # la réinitialisation de l'accès elle-même, seulement empêcher son envoi
-    # automatique. C'était le bug : build_absolute_uri() était hors du
-    # try/except et pouvait remonter une exception non interceptée -> 500.
+    # Tout ce qui suit est sous filet : un échec ici ne doit jamais faire
+    # planter la création ou la réinitialisation de l'accès elle-même,
+    # seulement empêcher son envoi automatique.
     try:
-        login_url = request.build_absolute_uri(reverse("accounts:login"))
+        login_url = safe_login_url(request)
         if created:
             subject = "Votre accès au Championnat de Scrabble"
             intro = "Un accès de connexion a été créé pour vous"

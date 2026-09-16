@@ -17,6 +17,7 @@ from .services import (
     import_players_from_csv,
     is_deliverable_email,
     reset_player_login_password,
+    safe_login_url,
     send_login_credentials_email,
     suggest_email,
     suggest_username,
@@ -139,6 +140,7 @@ class PlayerLoginCreateView(PlayerManagerRequiredMixin, View):
                         "created": True,
                         "email_sent": email_sent,
                         "email_deliverable": is_deliverable_email(user.email),
+                        "login_url": safe_login_url(request),
                     },
                 )
         return render(request, self.template_name, {"form": form, "player": player})
@@ -173,6 +175,7 @@ class PlayerLoginResetView(PlayerManagerRequiredMixin, View):
                 "created": False,
                 "email_sent": email_sent,
                 "email_deliverable": is_deliverable_email(player.user.email),
+                "login_url": safe_login_url(request),
             },
         )
 

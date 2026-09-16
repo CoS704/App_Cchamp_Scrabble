@@ -219,22 +219,40 @@ class PlayerLoginEmailTests(TestCase):
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn("réinitialisé", mail.outbox[0].subject)
 
-    def test_reset_never_500s_even_if_link_building_breaks(self):
-        """Régression : build_absolute_uri() était appelé hors du try/except
-        dans send_login_credentials_email — une exception y remontait telle
-        quelle jusqu'à la vue -> 500, au lieu d'être avalée comme n'importe
-        quel autre échec d'envoi (§ l'e-mail ne doit jamais casser le flux)."""
+    def test_reset_never_500s_if_sending_itself_fails(self):
+        """Régression : construire l'URL/le message était hors du
+        try/except dans send_login_credentials_email — une exception y
+        remontait telle quelle jusqu'à la vue -> 500, au lieu d'être avalée
+        comme n'importe quel autre échec d'envoi (§ l'e-mail ne doit jamais
+        casser le flux)."""
         from unittest.mock import patch
 
         player = Player.objects.create(first_name="Mail", last_name="Broken")
         create_player_login(player, username="mail.broken", email="mail.broken@example.com")
         self.client.force_login(self.admin)
 
-        with patch(
-            "django.http.HttpRequest.build_absolute_uri", side_effect=RuntimeError("boom")
-        ):
+        with patch("players.services.send_mail", side_effect=RuntimeError("boom")):
             resp = self.client.post(f"/gestion/joueurs/{player.slug}/reinitialiser-mot-de-passe/")
 
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "L'envoi automatique par e-mail a échoué")
+
+    def test_safe_login_url_never_raises_even_with_bad_allowed_hosts(self):
+        """La page affichait directement request.get_host (pour le lien de
+        connexion à partager) : si ALLOWED_HOSTS ne correspond pas à l'hôte
+        réel, ça lève DisallowedHost. En pratique Django convertit déjà ça
+        en 400 avant même d'atteindre la vue (SuspiciousOperation), donc ce
+        n'était pas la source du 500 observé — mais safe_login_url() ne
+        doit quand même jamais lever, pour ne pas dépendre de ce filet."""
+        from django.http import HttpRequest
+
+        from players.services import safe_login_url
+
+        request = HttpRequest()
+        request.META["SERVER_NAME"] = "unresolvable-host.invalid"
+        request.META["SERVER_PORT"] = "80"
+
+        url = safe_login_url(request)
+
+        self.assertTrue(url)  # ne lève pas, retombe sur un chemin relatif au pire
         self.assertEqual(len(mail.outbox), 0)
