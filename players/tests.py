@@ -263,3 +263,19 @@ class PlayerLoginEmailTests(TestCase):
 
         self.assertTrue(url)  # ne lève pas, retombe sur un chemin relatif au pire
         self.assertEqual(len(mail.outbox), 0)
+
+    def test_email_backend_is_configured_with_a_timeout(self):
+        """Régression prod : sans EMAIL_TIMEOUT, une connexion SMTP qui ne
+        répond jamais (port bloqué côté hébergeur, pare-feu muet…) bloque le
+        worker indéfiniment jusqu'au WORKER TIMEOUT de gunicorn -> SIGKILL,
+        un SystemExit qu'aucun except Exception ne peut intercepter. Un
+        timeout court transforme ça en simple exception Python, avalée
+        normalement par send_login_credentials_email."""
+        from django.conf import settings
+        from django.core.mail import get_connection
+
+        self.assertIsNotNone(settings.EMAIL_TIMEOUT)
+        self.assertGreater(settings.EMAIL_TIMEOUT, 0)
+
+        connection = get_connection(backend="django.core.mail.backends.smtp.EmailBackend")
+        self.assertEqual(connection.timeout, settings.EMAIL_TIMEOUT)

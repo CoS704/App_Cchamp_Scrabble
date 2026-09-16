@@ -158,6 +158,12 @@ EMAIL_PORT = env.int("EMAIL_PORT", default=587)
 EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
 EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
+# Sans timeout, une connexion SMTP qui ne répond jamais (port bloqué par
+# l'hébergeur, pare-feu muet…) bloque le worker gunicorn indéfiniment ->
+# WORKER TIMEOUT -> SIGKILL -> 500, et avec un seul worker (WEB_CONCURRENCY
+# bas), ça rend tout le site indisponible le temps du blocage. Un timeout
+# court transforme ça en simple exception Python, proprement interceptée.
+EMAIL_TIMEOUT = env.int("EMAIL_TIMEOUT", default=10)
 DEFAULT_FROM_EMAIL = env(
     "DEFAULT_FROM_EMAIL", default="Championnat de Scrabble <no-reply@championnat-scrabble.local>"
 )

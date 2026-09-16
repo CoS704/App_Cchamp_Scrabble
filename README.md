@@ -112,10 +112,19 @@ Comptes créés (mot de passe unique, **usage local uniquement**) :
 | `EMAIL_PORT` / `EMAIL_USE_TLS` | Port et TLS du serveur SMTP | `587` / `True` |
 | `EMAIL_HOST_USER` / `EMAIL_HOST_PASSWORD` | Identifiants SMTP | mot de passe d'application Gmail, clé API SendGrid… |
 | `DEFAULT_FROM_EMAIL` | Adresse expéditrice | `Championnat de Scrabble <no-reply@…>` |
+| `EMAIL_TIMEOUT` | Timeout (secondes) de la connexion SMTP | `10` (défaut) |
 
 Avec `EMAIL_HOST` renseigné, les identifiants de connexion créés/réinitialisés
 depuis la fiche joueur (§ accès joueur) sont envoyés automatiquement par
 e-mail au joueur, en plus d'être affichés une fois à l'écran.
+
+⚠️ `EMAIL_TIMEOUT` n'est pas cosmétique : sans lui, une connexion SMTP qui ne
+répond jamais (port bloqué par l'hébergeur, pare-feu muet…) bloque le worker
+indéfiniment jusqu'à ce que gunicorn le tue de force (`WORKER TIMEOUT` →
+`SIGKILL`) — un type d'erreur qu'aucun `try/except` applicatif ne peut
+intercepter. Sur un déploiement à un seul worker (`WEB_CONCURRENCY` bas),
+ça rend tout le site indisponible le temps du blocage, pas seulement la
+page concernée.
 
 ## Déploiement Render + Neon
 
