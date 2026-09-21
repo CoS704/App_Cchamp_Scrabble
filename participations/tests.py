@@ -79,8 +79,7 @@ class WithdrawParticipationTests(TestCase):
         self.assertIsNone(result)
         self.assertFalse(ChampionshipParticipation.objects.filter(pk=p.pk).exists())
 
-    def test_withdraw_with_match_history_keeps_the_row_marked_withdrawn(self):
-        from core.enums import ParticipationStatus
+    def _two_players_with_match(self, **match_kwargs):
         from competition.models import Match
 
         p1 = register_participation(
@@ -89,9 +88,19 @@ class WithdrawParticipationTests(TestCase):
         p2 = register_participation(
             championship=self.championship, player=make_player("B", "Wd"), division=self.division
         )
-        Match.objects.create(
+        match = Match.objects.create(
             championship=self.championship, division=self.division, phase=self.phase,
             player1=p1, player2=p2, pair_key=Match.compute_pair_key(p1.id, p2.id),
+            **match_kwargs,
+        )
+        return p1, p2, match
+
+    def test_withdraw_with_played_match_keeps_the_row_marked_withdrawn(self):
+        from core.enums import ParticipationStatus, ResultStatus
+
+        p1, p2, match = self._two_players_with_match(
+            score1=400, score2=300, result_status=ResultStatus.VALIDATED,
+            status="COMPLETED", counts_for_standings=True,
         )
 
         result = withdraw_participation(p1)
@@ -99,6 +108,68 @@ class WithdrawParticipationTests(TestCase):
         self.assertIsNotNone(result)
         p1.refresh_from_db()
         self.assertEqual(p1.status, ParticipationStatus.WITHDRAWN)
+
+    def test_withdraw_with_only_unplayed_scheduled_matches_removes_everything(self):
+        """Régression : un calendrier généré mais vierge comptait comme un
+        historique — le joueur restait « Retiré » à vie et introuvable dans le
+        formulaire d'inscription (impossible de permuter deux joueurs)."""
+        from competition.models import Match
+
+        p1, p2, match = self._two_players_with_match()
+
+        result = withdraw_participation(p1)
+
+        self.assertIsNone(result)
+        self.assertFalse(ChampionshipParticipation.objects.filter(pk=p1.pk).exists())
+        self.assertFalse(Match.objects.filter(pk=match.pk).exists())
+        self.assertTrue(ChampionshipParticipation.objects.filter(pk=p2.pk).exists())
+
+    def test_withdrawn_player_is_offered_again_and_can_change_division(self):
+        """Un joueur déjà retiré (ancienne ligne « Retiré » avec calendrier
+        vierge) doit pouvoir être réinscrit dans une autre division."""
+        from competition.models import Match
+        from core.enums import ParticipationStatus
+        from participations.forms import ParticipationForm
+
+        p1, p2, match = self._two_players_with_match()
+        p1.status = ParticipationStatus.WITHDRAWN
+        p1.save()
+        division2 = make_division(self.championship, name="D2", level=2, carryover_key="d2")
+
+        form = ParticipationForm(championship=self.championship)
+        self.assertIn(p1.player, form.fields["player"].queryset)
+
+        result = register_participation(
+            championship=self.championship, player=p1.player, division=division2
+        )
+
+        self.assertEqual(result.pk, p1.pk)
+        self.assertEqual(result.division_id, division2.id)
+        self.assertEqual(result.status, ParticipationStatus.REGISTERED)
+        self.assertFalse(Match.objects.filter(pk=match.pk).exists())
+
+    def test_withdrawn_player_with_played_matches_cannot_change_division(self):
+        from core.enums import ParticipationStatus, ResultStatus
+
+        p1, p2, match = self._two_players_with_match(
+            score1=400, score2=300, result_status=ResultStatus.VALIDATED,
+            status="COMPLETED", counts_for_standings=True,
+        )
+        p1.status = ParticipationStatus.WITHDRAWN
+        p1.save()
+        division2 = make_division(self.championship, name="D2", level=2, carryover_key="d2")
+
+        with self.assertRaises(ValidationError):
+            register_participation(
+                championship=self.championship, player=p1.player, division=division2
+            )
+
+    def test_active_player_still_cannot_be_registered_twice(self):
+        p1, p2, match = self._two_players_with_match()
+        with self.assertRaises(ValidationError):
+            register_participation(
+                championship=self.championship, player=p1.player, division=self.division
+            )
 
     def test_withdrawing_only_participation_makes_player_deletable(self):
         from core.factories import make_user

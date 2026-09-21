@@ -13,6 +13,17 @@ from .forms import ParticipationForm
 from .services import register_participation, withdraw_participation
 
 
+def _schedule_hint(division):
+    """Un calendrier déjà généré ne suit pas les mouvements de joueurs : à
+    régénérer, sinon il reste basé sur l'ancienne composition."""
+    if division.matches.exists():
+        return (
+            f" Le calendrier de « {division.name} » existe déjà : régénérez-le "
+            "(page Calendrier → Régénérer) pour qu'il reflète la nouvelle composition."
+        )
+    return ""
+
+
 class ParticipationListView(ChampionshipScopedMixin, ChampionshipAdminRequiredMixin, ListView):
     template_name = "participations/list.html"
     context_object_name = "participations"
@@ -57,7 +68,9 @@ class ParticipationCreateView(ChampionshipScopedMixin, ChampionshipAdminRequired
                     request=request,
                 )
                 messages.success(
-                    request, f"{participation.player} inscrit en {participation.division}."
+                    request,
+                    f"{participation.player} inscrit en {participation.division}."
+                    + _schedule_hint(participation.division),
                 )
                 return redirect("participations:list", slug=self.championship.slug)
         return render(request, self.template_name, {"form": form, "championship": self.championship})
@@ -67,6 +80,7 @@ class ParticipationWithdrawView(ChampionshipScopedMixin, ChampionshipAdminRequir
     def post(self, request, *args, **kwargs):
         participation = get_object_or_404(self.championship.participations, pk=kwargs["pk"])
         player_label = str(participation.player)
+        division = participation.division
         result = withdraw_participation(participation)
         if result is None:
             log_action(
@@ -78,7 +92,8 @@ class ParticipationWithdrawView(ChampionshipScopedMixin, ChampionshipAdminRequir
             )
             messages.success(
                 request,
-                f"{player_label} retiré du championnat (aucun match joué : l'inscription a été supprimée).",
+                f"{player_label} retiré du championnat (aucun match joué : l'inscription a été supprimée)."
+                + _schedule_hint(division),
             )
         else:
             log_action(

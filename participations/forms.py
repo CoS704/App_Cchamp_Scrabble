@@ -1,5 +1,6 @@
 from django import forms
 
+from core.enums import ParticipationStatus
 from core.forms import BootstrapFormMixin
 from players.models import Player
 
@@ -14,7 +15,11 @@ class ParticipationForm(BootstrapFormMixin, forms.Form):
 
     def __init__(self, *args, championship, **kwargs):
         super().__init__(*args, **kwargs)
-        already_registered = championship.participations.values_list("player_id", flat=True)
+        # Un joueur retiré peut être réinscrit (ex. permuter deux joueurs de
+        # division) : seuls les inscrits encore présents sont exclus.
+        already_registered = championship.participations.exclude(
+            status=ParticipationStatus.WITHDRAWN
+        ).values_list("player_id", flat=True)
         self.fields["player"].queryset = (
             Player.objects.filter(is_active=True)
             .exclude(id__in=already_registered)
