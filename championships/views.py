@@ -1,5 +1,6 @@
 from django import forms
 from django.contrib import messages
+from django.core.exceptions import ValidationError
 from django.db.models.deletion import ProtectedError, RestrictedError
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -48,7 +49,9 @@ class ChampionshipCreateView(GlobalAdminRequiredMixin, CreateView):
         )
         messages.success(
             self.request,
-            "Championnat créé. Configurez maintenant ses divisions et ses règles.",
+            "Championnat créé en « Brouillon ». Configurez ses divisions et ses règles, "
+            "puis passez-le « En cours » (bouton « Changer le statut ») pour qu'il "
+            "apparaisse dans les classements publics et « Mon espace ».",
         )
         return response
 
@@ -123,6 +126,46 @@ class ChampionshipSettingsUpdateView(
 
     def get_success_url(self):
         return reverse("championships:detail", kwargs={"slug": self.championship.slug})
+
+
+class ChampionshipStatusView(ChampionshipScopedMixin, ChampionshipAdminRequiredMixin, View):
+    """Fait évoluer le statut de l'édition (Brouillon → En cours → Terminé…)."""
+
+    template_name = "championships/status_form.html"
+
+    def _context(self):
+        return {
+            "championship": self.championship,
+            "choices": [
+                (value, label)
+                for value, label in ChampionshipStatus.choices
+                if value != self.championship.status
+            ],
+        }
+
+    def get(self, request, *args, **kwargs):
+        return render(request, self.template_name, self._context())
+
+    def post(self, request, *args, **kwargs):
+        old_status = self.championship.status
+        new_status = request.POST.get("status", "")
+        try:
+            services.change_status(self.championship, new_status)
+        except ValidationError as exc:
+            messages.error(request, " ".join(exc.messages))
+            return redirect("championships:status", slug=self.championship.slug)
+        log_action(
+            actor=request.user,
+            action=AuditAction.CHAMPIONSHIP_STATUS_CHANGED,
+            target=self.championship,
+            championship=self.championship,
+            request=request,
+            changes={"from": old_status, "to": new_status},
+        )
+        messages.success(
+            request, f"Statut modifié : {self.championship.get_status_display()}."
+        )
+        return redirect("championships:detail", slug=self.championship.slug)
 
 
 class ChampionshipDeleteView(ChampionshipScopedMixin, GlobalAdminRequiredMixin, View):

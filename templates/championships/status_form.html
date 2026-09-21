@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Statut — {{ championship.name }}{% endblock %}
+
+{% block content %}
+<div class="card shadow-sm p-4" style="max-width: 640px;">
+  <h1 class="h5">Statut de « {{ championship.name }} »</h1>
+  <p class="text-muted">
+    Statut actuel : <span class="badge text-bg-secondary">{{ championship.get_status_display }}</span>.
+    Un championnat en <strong>Brouillon</strong> n'apparaît pas dans les classements publics ;
+    passez-le <strong>En cours</strong> une fois le calendrier généré pour que les joueurs le voient
+    dans « Mon espace » et reçoivent les notifications de retard.
+  </p>
+  <form method="post">
+    {% csrf_token %}
+    <div class="mb-3">
+      <label class="form-label" for="status">Nouveau statut</label>
+      <select name="status" id="status" class="form-select" required>
+        {% for value, label in choices %}
+          <option value="{{ value }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="btn btn-primary">Enregistrer</button>
+    <a href="{% url 'championships:detail' championship.slug %}" class="btn btn-link">Annuler</a>
+  </form>
+</div>
+{% endblock %}

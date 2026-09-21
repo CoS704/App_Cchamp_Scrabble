@@ -14,6 +14,7 @@ urlpatterns = [
         name="settings",
     ),
     path("<slug:slug>/verrouiller/", views.LockRulesView.as_view(), name="lock_rules"),
+    path("<slug:slug>/statut/", views.ChampionshipStatusView.as_view(), name="status"),
     path("<slug:slug>/supprimer/", views.ChampionshipDeleteView.as_view(), name="delete"),
     path(
         "<slug:slug>/divisions/nouvelle/",

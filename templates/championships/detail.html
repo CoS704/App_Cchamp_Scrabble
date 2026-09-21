@@ -8,6 +8,9 @@
     <h1 class="h3 mb-1">
       {{ championship.name }}
       <span class="badge text-bg-secondary">{{ championship.get_status_display }}</span>
+      <a href="{% url 'championships:status' championship.slug %}" class="btn btn-outline-secondary btn-sm align-middle ms-1">
+        Changer le statut
+      </a>
       {% if championship.is_inaugural %}<span class="badge text-bg-info">Inaugurale</span>{% endif %}
       {% if championship.rules_locked %}
         <span class="badge text-bg-warning text-dark"><i class="bi bi-lock-fill"></i> Règles verrouillées</span>

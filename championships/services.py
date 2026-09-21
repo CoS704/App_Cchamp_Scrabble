@@ -1,7 +1,8 @@
 """Règles métier de configuration d'un championnat (§48, §17)."""
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 
-from core.enums import PrimaryTiebreak, PromotionMethod, TiebreakCriterion
+from core.enums import ChampionshipStatus, PrimaryTiebreak, PromotionMethod, TiebreakCriterion
 
 from .models import ChampionshipSettings, ChampionshipTiebreak
 
@@ -68,4 +69,44 @@ def lock_rules(championship):
     """Verrouille les règles critiques de l'édition (§49)."""
     championship.rules_locked_at = timezone.now()
     championship.save(update_fields=["rules_locked_at", "updated_at"])
+    return championship
+
+
+# Statuts qui supposent un calendrier déjà généré : passer « En cours » sans
+# aucun match n'a pas de sens (rien à jouer, rien à classer).
+_STATUSES_REQUIRING_SCHEDULE = {
+    ChampionshipStatus.SCHEDULED,
+    ChampionshipStatus.IN_PROGRESS,
+    ChampionshipStatus.FINALS,
+}
+
+
+def change_status(championship, new_status):
+    """Change le statut d'une édition, avec les garde-fous d'intégrité.
+
+    Jusqu'ici rien ne faisait jamais évoluer le statut : une édition créée
+    depuis l'interface restait « Brouillon » indéfiniment (donc absente des
+    classements publics, de « Mon espace » et des notifications de retard).
+    """
+    if new_status not in ChampionshipStatus.values:
+        raise ValidationError("Statut inconnu.")
+    if new_status == championship.status:
+        raise ValidationError("Le championnat a déjà ce statut.")
+
+    if new_status in _STATUSES_REQUIRING_SCHEDULE and not championship.matches.exists():
+        raise ValidationError(
+            "Générez d'abord le calendrier (page Calendrier) : ce statut suppose "
+            "que des matchs existent."
+        )
+    if new_status == ChampionshipStatus.DRAFT and (
+        championship.participations.exists() or championship.matches.exists()
+    ):
+        # Un brouillon est supprimable en un clic : on ne le redevient pas
+        # une fois que des inscriptions ou des matchs existent.
+        raise ValidationError(
+            "Impossible de revenir en brouillon : des inscriptions ou des matchs existent déjà."
+        )
+
+    championship.status = new_status
+    championship.save(update_fields=["status", "updated_at"])
     return championship

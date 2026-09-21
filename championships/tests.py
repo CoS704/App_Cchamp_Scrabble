@@ -179,3 +179,74 @@ class ChampionshipDeleteTests(TestCase):
 
         self.assertRedirects(resp, "/gestion/championnats/")
         self.assertFalse(Championship.objects.filter(pk=championship.pk).exists())
+
+
+class ChampionshipStatusChangeTests(TestCase):
+    """Rien ne faisait évoluer le statut : une édition créée depuis
+    l'interface restait « Brouillon » pour toujours."""
+
+    def setUp(self):
+        self.admin = make_user("status_admin_t", group="Super Admin")
+        self.client.force_login(self.admin)
+
+    def _post(self, championship, status):
+        return self.client.post(
+            f"/gestion/championnats/{championship.slug}/statut/", {"status": status}
+        )
+
+    def test_draft_can_move_to_registration_open(self):
+        championship = make_championship(name="Status A", season="st-1")
+        resp = self._post(championship, ChampionshipStatus.REGISTRATION_OPEN)
+        self.assertRedirects(resp, f"/gestion/championnats/{championship.slug}/")
+        championship.refresh_from_db()
+        self.assertEqual(championship.status, ChampionshipStatus.REGISTRATION_OPEN)
+
+    def test_in_progress_requires_a_generated_schedule(self):
+        championship = make_championship(name="Status B", season="st-2")
+        self._post(championship, ChampionshipStatus.IN_PROGRESS)
+        championship.refresh_from_db()
+        self.assertEqual(championship.status, ChampionshipStatus.DRAFT)
+
+    def test_in_progress_allowed_once_matches_exist(self):
+        from competition.models import Match, Phase
+        from core.enums import PhaseKind
+        from core.factories import make_player, register
+
+        championship = make_championship(name="Status C", season="st-3")
+        division = make_division(championship)
+        p1 = register(championship, make_player("A", "St"), division)
+        p2 = register(championship, make_player("B", "St"), division)
+        phase = Phase.objects.create(
+            championship=championship, division=division, kind=PhaseKind.LEAGUE, order=1, name="Ligue"
+        )
+        Match.objects.create(
+            championship=championship, division=division, phase=phase, player1=p1, player2=p2,
+            pair_key=Match.compute_pair_key(p1.id, p2.id),
+        )
+        self._post(championship, ChampionshipStatus.IN_PROGRESS)
+        championship.refresh_from_db()
+        self.assertEqual(championship.status, ChampionshipStatus.IN_PROGRESS)
+
+    def test_cannot_go_back_to_draft_once_players_are_registered(self):
+        from core.factories import make_player, register
+
+        championship = make_championship(
+            name="Status D", season="st-4", status=ChampionshipStatus.REGISTRATION_OPEN
+        )
+        division = make_division(championship)
+        register(championship, make_player("A", "Sd"), division)
+        self._post(championship, ChampionshipStatus.DRAFT)
+        championship.refresh_from_db()
+        self.assertEqual(championship.status, ChampionshipStatus.REGISTRATION_OPEN)
+
+    def test_unknown_status_is_rejected(self):
+        championship = make_championship(name="Status E", season="st-5")
+        self._post(championship, "NOPE")
+        championship.refresh_from_db()
+        self.assertEqual(championship.status, ChampionshipStatus.DRAFT)
+
+    def test_page_renders_and_excludes_current_status(self):
+        championship = make_championship(name="Status F", season="st-6")
+        resp = self.client.get(f"/gestion/championnats/{championship.slug}/statut/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotIn(("DRAFT", "Brouillon"), resp.context["choices"])
