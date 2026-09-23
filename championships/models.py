@@ -172,7 +172,12 @@ class ChampionshipSettings(TimeStampedModel):
         "confirmation automatique si deux saisies identiques", default=True
     )
     late_match_threshold_days = models.PositiveSmallIntegerField(
-        "seuil « match en retard » (jours)", default=3
+        "tolérance avant « match en retard » (jours)",
+        default=0,
+        help_text=(
+            "Nombre de jours de grâce après la date prévue. 0 = un match non joué "
+            "est en retard dès le lendemain de sa date prévue."
+        ),
     )
     max_matches_per_day = models.PositiveSmallIntegerField(
         "matchs maximum par jour et par joueur",

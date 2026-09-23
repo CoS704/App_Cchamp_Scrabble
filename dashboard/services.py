@@ -27,7 +27,12 @@ def admin_dashboard_context(championship):
     matches = Match.objects.filter(championship=championship)
     total = matches.count()
     completed = matches.filter(status=MatchStatus.COMPLETED).count()
-    scheduled = matches.filter(status__in=[MatchStatus.SCHEDULED, MatchStatus.UPCOMING]).count()
+    # « Programmés » = pas encore joués : un résultat déjà saisi mais pas encore
+    # validé est compté à part (sinon il reste indéfiniment dans « Programmés »).
+    scheduled = matches.filter(
+        status__in=[MatchStatus.SCHEDULED, MatchStatus.UPCOMING],
+        result_status__in=[ResultStatus.NONE, ResultStatus.REJECTED],
+    ).count()
     postponed = matches.filter(status=MatchStatus.POSTPONED).count()
     cancelled = matches.filter(status=MatchStatus.CANCELLED).count()
     disputed = matches.filter(status=MatchStatus.DISPUTED).count()
@@ -143,8 +148,14 @@ def admin_dashboard_context(championship):
         "late_matches": late_matches,
         "late_matches_count": late_matches_total,
         "alerts": alerts,
-        "chart_progress": {"labels": ["Terminés", "Programmés", "Reportés", "Annulés"],
-                            "data": [completed, scheduled, postponed, cancelled]},
+        "late_threshold_days": championship.settings.late_match_threshold_days,
+        # Les parts somment au nombre total de matchs : rien n'est « perdu »
+        # entre les catégories (forfaits et résultats en attente inclus).
+        "chart_progress": {
+            "labels": ["Terminés", "En attente de validation", "Programmés", "Reportés",
+                       "Annulés", "Forfaits"],
+            "data": [completed, pending_results, scheduled, postponed, cancelled, forfeit],
+        },
         "chart_results": {"labels": ["Victoires", "Nuls", "Forfaits"],
                            "data": [wins_count, draws_count, forfeit_count]},
         "chart_division_players": {"labels": [d["name"] for d in division_players],

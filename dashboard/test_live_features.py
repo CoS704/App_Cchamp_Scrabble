@@ -190,3 +190,80 @@ class ProbabilityRefreshTests(TestCase):
 
         self.assertGreater(after["finals_pct"], before["finals_pct"])
         self.assertEqual(after["remaining_matches"], before["remaining_matches"] - 3)
+
+
+class LateThresholdTests(TestCase):
+    """Un match prévu hier et non joué doit compter « en retard » par défaut
+    (avant : tolérance implicite de 3 jours, compteur à 0 alors que des matchs
+    étaient manifestement en retard)."""
+
+    def _championship_with_match(self, scheduled_date):
+        championship = make_championship(
+            name=f"Late Threshold {scheduled_date}", season=f"lt-{scheduled_date}",
+            status=ChampionshipStatus.IN_PROGRESS,
+        )
+        division = make_division(championship)
+        phase = _league(championship, division)
+        p1 = register(championship, make_player("A", "Lt"), division)
+        p2 = register(championship, make_player("B", "Lt"), division)
+        Match.objects.create(
+            championship=championship, division=division, phase=phase, player1=p1, player2=p2,
+            scheduled_date=scheduled_date, pair_key=Match.compute_pair_key(p1.id, p2.id),
+        )
+        return championship
+
+    def test_default_is_zero_days_of_grace(self):
+        from dashboard.services import admin_dashboard_context
+
+        yesterday = datetime.date.today() - datetime.timedelta(days=1)
+        championship = self._championship_with_match(yesterday)
+        self.assertEqual(championship.settings.late_match_threshold_days, 0)
+        self.assertEqual(admin_dashboard_context(championship)["late_matches_count"], 1)
+
+    def test_todays_match_is_not_late(self):
+        from dashboard.services import admin_dashboard_context
+
+        championship = self._championship_with_match(datetime.date.today())
+        self.assertEqual(admin_dashboard_context(championship)["late_matches_count"], 0)
+
+    def test_explicit_grace_period_is_still_honoured(self):
+        from dashboard.services import admin_dashboard_context
+
+        yesterday = datetime.date.today() - datetime.timedelta(days=1)
+        championship = self._championship_with_match(yesterday)
+        championship.settings.late_match_threshold_days = 3
+        championship.settings.save()
+        self.assertEqual(admin_dashboard_context(championship)["late_matches_count"], 0)
+
+
+class ProgressChartTests(TestCase):
+    def test_progress_chart_slices_add_up_to_total_matches(self):
+        """Résultats en attente et forfaits ne doivent pas disparaître du
+        graphique de progression (les parts somment au total des matchs)."""
+        from dashboard.services import admin_dashboard_context
+
+        championship = make_championship(
+            name="Chart Sum Championship", season="cs-1", status=ChampionshipStatus.IN_PROGRESS
+        )
+        division = make_division(championship)
+        phase = _league(championship, division)
+        ps = [register(championship, make_player(f"P{i}", "Cs"), division) for i in range(4)]
+        states = [
+            dict(status="COMPLETED", result_status=ResultStatus.VALIDATED, score1=400, score2=300),
+            dict(status="SCHEDULED", result_status=ResultStatus.SUBMITTED),
+            dict(status="SCHEDULED"),
+            dict(status="FORFEIT", result_status=ResultStatus.VALIDATED, score1=0, score2=0),
+        ]
+        pairs = [(0, 1), (0, 2), (0, 3), (1, 2)]
+        for (i, j), extra in zip(pairs, states):
+            Match.objects.create(
+                championship=championship, division=division, phase=phase,
+                player1=ps[i], player2=ps[j],
+                pair_key=Match.compute_pair_key(ps[i].id, ps[j].id), **extra,
+            )
+
+        chart = admin_dashboard_context(championship)["chart_progress"]
+
+        self.assertEqual(sum(chart["data"]), 4)
+        self.assertEqual(dict(zip(chart["labels"], chart["data"]))["En attente de validation"], 1)
+        self.assertEqual(dict(zip(chart["labels"], chart["data"]))["Programmés"], 1)
