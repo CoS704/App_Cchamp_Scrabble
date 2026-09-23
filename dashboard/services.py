@@ -47,9 +47,13 @@ def admin_dashboard_context(championship):
     )
     players_count = active_participations.count()
 
+    # Le compteur porte sur TOUS les matchs en retard ; seule la liste
+    # affichée est limitée à 20 lignes (avant, le compteur lui-même plafonnait
+    # à 20 et « ne bougeait plus » sur un gros championnat).
+    late_qs = late_matches_queryset(championship)
+    late_matches_total = late_qs.count()
     late_matches = list(
-        late_matches_queryset(championship)
-        .select_related("division", "matchday", "player1__player", "player2__player")
+        late_qs.select_related("division", "matchday", "player1__player", "player2__player")
         .order_by("scheduled_date")[:20]
     )
     today = timezone.localdate()
@@ -120,7 +124,7 @@ def admin_dashboard_context(championship):
         1 for md in matchday_stats if md.total_matches > 0 and md.unfinished_matches == 0
     )
 
-    alerts = _build_alerts(championship, divisions, disputed, pending_results, late_matches, snapshots)
+    alerts = _build_alerts(championship, divisions, disputed, pending_results, late_matches_total, snapshots)
 
     return {
         "players_count": players_count,
@@ -137,7 +141,7 @@ def admin_dashboard_context(championship):
         "matchdays_total": matchdays_total,
         "matchdays_completed": matchdays_completed,
         "late_matches": late_matches,
-        "late_matches_count": len(late_matches),
+        "late_matches_count": late_matches_total,
         "alerts": alerts,
         "chart_progress": {"labels": ["Terminés", "Programmés", "Reportés", "Annulés"],
                             "data": [completed, scheduled, postponed, cancelled]},
@@ -183,7 +187,7 @@ def _top_players(snapshots, limit=10):
     ]
 
 
-def _build_alerts(championship, divisions, disputed_count, pending_results, late_matches, snapshots):
+def _build_alerts(championship, divisions, disputed_count, pending_results, late_matches_count, snapshots):
     alerts = []
     if disputed_count:
         alerts.append({
@@ -199,10 +203,10 @@ def _build_alerts(championship, divisions, disputed_count, pending_results, late
             "link_query": "result_status=PENDING",
             "link_label": "Voir les résultats en attente",
         })
-    if late_matches:
+    if late_matches_count:
         alerts.append({
             "level": "warning",
-            "message": f"{len(late_matches)} match(s) en retard.",
+            "message": f"{late_matches_count} match(s) en retard.",
         })
     for division in divisions:
         count = division.active_players
@@ -291,6 +295,14 @@ def player_dashboard_context(user):
         .order_by("scheduled_date", "id")
         .first()
     )
+    # Limite quotidienne : une fois atteinte, le prochain adversaire n'est pas
+    # dévoilé (ni le match, ni son identifiant ScrabbleGO) avant le lendemain.
+    from competition.services.daily_limit import daily_limit_status
+
+    daily_limit = daily_limit_status(participation)
+    next_match_hidden = bool(daily_limit and daily_limit["reached"])
+    if next_match_hidden:
+        next_match = None
     remaining = base_qs.filter(
         status__in=[MatchStatus.SCHEDULED, MatchStatus.UPCOMING, MatchStatus.POSTPONED]
     ).count()
@@ -312,6 +324,8 @@ def player_dashboard_context(user):
         "total_rows": total_rows,
         "next_match": next_match,
         "next_match_opponent": _opponent_for(participation, next_match),
+        "next_match_hidden": next_match_hidden,
+        "daily_limit": daily_limit,
         "remaining": remaining,
         "recent_matches": recent_matches,
         "probabilities": movement_probabilities(participation),

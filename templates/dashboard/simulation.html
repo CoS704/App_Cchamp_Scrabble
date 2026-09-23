@@ -21,15 +21,22 @@
         <div class="col-3"><div class="fs-4 fw-bold text-info">{{ probabilities.finals_pct }}%</div><div class="text-muted small">Phase finale</div></div>
       </div>
       <p class="text-muted small mt-3 mb-0">
-        Estimation basée sur le meilleur et le pire classement mathématiquement
-        atteignables compte tenu des {{ probabilities.remaining_matches }} match(s)
-        restant(s). Ce n'est pas une décision officielle.
+        Estimation par simulation des matchs restants ({{ probabilities.remaining_matches }} pour
+        vous), d'après la forme actuelle de chaque joueur. Meilleur rang atteignable :
+        {{ probabilities.best_rank }}, pire : {{ probabilities.worst_rank }}. Ce n'est pas
+        une décision officielle.
       </p>
     </div>
   </div>
   {% endif %}
 
-  {% if remaining_matches %}
+  {% if daily_limit and daily_limit.reached %}
+    <div class="alert alert-info">
+      <i class="bi bi-lock me-1"></i>
+      Limite de {{ daily_limit.limit }} match{{ daily_limit.limit|pluralize:"s" }} par jour atteinte :
+      la liste de vos prochains adversaires est masquée jusqu'à demain.
+    </div>
+  {% elif remaining_matches %}
   <form method="post" class="card shadow-sm p-4 mb-4">
     {% csrf_token %}
     <h2 class="h6 mb-3">Mes matchs restants</h2>

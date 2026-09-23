@@ -20,6 +20,9 @@
       <div class="small mt-2 opacity-75">
         <span class="live-dot me-1"></span>Mise à jour automatique —
         dernière actualisation <span id="last-updated">à l'instant</span>
+        <button type="button" id="refresh-now" class="btn btn-sm btn-outline-light py-0 ms-1">
+          <i class="bi bi-arrow-clockwise"></i> Actualiser
+        </button>
       </div>
     </div>
   </div>
@@ -229,6 +232,8 @@
 {% endblock %}
 
 {% block extra_scripts %}
+{% load static %}
+<script src="{% static 'js/live-refresh.js' %}"></script>
 <script>
 (function() {
   let dashboardCharts = [];
@@ -245,6 +250,7 @@
 
   function initCharts() {
     destroyCharts();
+    if (typeof Chart === "undefined") return;
     const palette = ["#2563eb", "#16a34a", "#d97706", "#dc2626", "#7c3aed", "#0891b2", "#f97316"];
 
     const progressEl = document.getElementById("chart-progress");
@@ -298,30 +304,11 @@
     }
   }
 
-  async function refreshDashboard() {
-    try {
-      const resp = await fetch(window.location.pathname, {
-        headers: {"X-Requested-With": "XMLHttpRequest"},
-        cache: "no-store",
-      });
-      if (!resp.ok) return;
-      const html = await resp.text();
-      const doc = new DOMParser().parseFromString(html, "text/html");
-      const fresh = doc.getElementById("dashboard-content");
-      const current = document.getElementById("dashboard-content");
-      if (fresh && current) {
-        current.innerHTML = fresh.innerHTML;
-        initCharts();
-        const ts = document.getElementById("last-updated");
-        if (ts) ts.textContent = new Date().toLocaleTimeString("fr-FR");
-      }
-    } catch (e) {
-      // Silencieux : nouvelle tentative au prochain intervalle.
-    }
-  }
-
-  initCharts();
-  setInterval(refreshDashboard, 20000);
+  // Le cycle d'actualisation démarre AVANT le premier rendu des graphiques :
+  // si Chart.js n'a pas pu se charger (CDN bloqué…), les chiffres restent
+  // quand même à jour.
+  window.startLiveRefresh({ onSwap: initCharts });
+  try { initCharts(); } catch (e) { console.error("Graphiques indisponibles :", e); }
 })();
 </script>
 {% endblock %}

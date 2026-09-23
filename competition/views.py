@@ -15,7 +15,7 @@ RESULT_STATUS_FILTER_CHOICES = [
     (ResultStatus.VALIDATED, "Validé"),
     (ResultStatus.REJECTED, "Rejeté"),
 ]
-from core.permissions import ChampionshipAdminRequiredMixin, RefereeRequiredMixin
+from core.permissions import ChampionshipAdminRequiredMixin, RefereeRequiredMixin, can_referee
 
 from .forms import (
     MatchCancelForm,
@@ -26,8 +26,9 @@ from .forms import (
 )
 from .mixins import MatchParticipantOrStaffMixin, MatchScopedMixin
 from .models import Match
+from .services.daily_limit import next_opponent_hidden
 from .services.match import cancel_match, declare_forfeit, postpone_match, reschedule_match
-from .services.result import reject_result, submit_result
+from .services.result import participation_for_user, reject_result, submit_result
 from .services.scheduling import (
     ACTIVE_PARTICIPATION_STATUSES,
     expected_match_count,
@@ -319,11 +320,35 @@ class MatchResultView(MatchParticipantOrStaffMixin, View):
             .order_by("submitted_at"),
         }
 
+    def _blocked_by_daily_limit(self, request):
+        """Limite de matchs par jour : ouvrir la fiche d'un match pas encore
+        joué dévoilerait l'adversaire, ce que la limite atteinte interdit. Ne
+        concerne ni le staff ni un match déjà joué/en attente de confirmation
+        (le joueur doit pouvoir le confirmer)."""
+        if can_referee(request.user, self.championship, self.match.division):
+            return False
+        if self.match.result_status not in (ResultStatus.NONE, ResultStatus.REJECTED):
+            return False
+        participation = participation_for_user(request.user, self.match)
+        return participation is not None and next_opponent_hidden(participation)
+
+    def _daily_limit_redirect(self, request):
+        messages.warning(
+            request,
+            "Limite de matchs par jour atteinte : votre prochain adversaire sera "
+            "dévoilé demain.",
+        )
+        return redirect("player_dashboard")
+
     def get(self, request, *args, **kwargs):
+        if self._blocked_by_daily_limit(request):
+            return self._daily_limit_redirect(request)
         form = ResultSubmissionForm(match=self.match, user=request.user)
         return render(request, self.template_name, self._context(form))
 
     def post(self, request, *args, **kwargs):
+        if self._blocked_by_daily_limit(request):
+            return self._daily_limit_redirect(request)
         form = ResultSubmissionForm(request.POST, match=self.match, user=request.user)
         if form.is_valid():
             score1, score2 = form.get_orientation_scores()

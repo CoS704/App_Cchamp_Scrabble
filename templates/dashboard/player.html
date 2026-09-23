@@ -62,6 +62,9 @@
       <div class="small text-end opacity-75">
         <span class="live-dot me-1"></span>Mise à jour automatique —
         <span id="last-updated">à l'instant</span>
+        <button type="button" id="refresh-now" class="btn btn-sm btn-outline-light py-0 ms-1">
+          <i class="bi bi-arrow-clockwise"></i> Actualiser
+        </button>
       </div>
     </div>
   </div>
@@ -125,8 +128,9 @@
         {% endif %}
 
         <p class="text-muted small mb-0">
-          Estimation basée sur le classement actuel, les matchs restants et les
-          scénarios possibles. Ce n'est pas une décision officielle.
+          Estimation par simulation des matchs restants, d'après la forme actuelle de
+          chaque joueur. Elle évolue à chaque résultat validé ; ce n'est pas une
+          décision officielle.
         </p>
       </div>
     </div>
@@ -137,7 +141,19 @@
         <div class="chart-card card h-100">
           <div class="card-header"><i class="bi bi-calendar-event me-2"></i>Prochain match</div>
           <div class="card-body">
-            {% if next_match %}
+            {% if daily_limit %}
+              <p class="small text-muted mb-2">
+                <i class="bi bi-calendar-day me-1"></i>Matchs joués aujourd'hui :
+                <strong>{{ daily_limit.played_today }} / {{ daily_limit.limit }}</strong>
+              </p>
+            {% endif %}
+            {% if next_match_hidden %}
+              <div class="alert alert-info mb-0">
+                <i class="bi bi-lock me-1"></i>
+                Limite de {{ daily_limit.limit }} match{{ daily_limit.limit|pluralize:"s" }} par jour atteinte :
+                votre prochain adversaire sera dévoilé demain.
+              </div>
+            {% elif next_match %}
               <p class="mb-1 fw-medium">
                 {{ next_match.player1.player }} vs {{ next_match.player2.player|default:"Exempt" }}
               </p>
@@ -204,30 +220,8 @@
 
 {% block extra_scripts %}
 {% if participation %}
-<script>
-(function() {
-  async function refreshDashboard() {
-    try {
-      const resp = await fetch(window.location.pathname, {
-        headers: {"X-Requested-With": "XMLHttpRequest"},
-        cache: "no-store",
-      });
-      if (!resp.ok) return;
-      const html = await resp.text();
-      const doc = new DOMParser().parseFromString(html, "text/html");
-      const fresh = doc.getElementById("dashboard-content");
-      const current = document.getElementById("dashboard-content");
-      if (fresh && current) {
-        current.innerHTML = fresh.innerHTML;
-        const ts = document.getElementById("last-updated");
-        if (ts) ts.textContent = new Date().toLocaleTimeString("fr-FR");
-      }
-    } catch (e) {
-      // Silencieux : nouvelle tentative au prochain intervalle.
-    }
-  }
-  setInterval(refreshDashboard, 20000);
-})();
-</script>
+{% load static %}
+<script src="{% static 'js/live-refresh.js' %}"></script>
+<script>window.startLiveRefresh();</script>
 {% endif %}
 {% endblock %}

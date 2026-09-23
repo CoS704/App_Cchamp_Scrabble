@@ -174,6 +174,17 @@ class ChampionshipSettings(TimeStampedModel):
     late_match_threshold_days = models.PositiveSmallIntegerField(
         "seuil « match en retard » (jours)", default=3
     )
+    max_matches_per_day = models.PositiveSmallIntegerField(
+        "matchs maximum par jour et par joueur",
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1)],
+        help_text=(
+            "Vide = pas de limite. Une fois ce nombre de matchs joué dans la "
+            "journée, le prochain adversaire n'est plus dévoilé au joueur "
+            "avant le lendemain."
+        ),
+    )
 
     # Phase finale
     finals_enabled = models.BooleanField("phase finale activée", default=False)

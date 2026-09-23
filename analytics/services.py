@@ -1,16 +1,26 @@
 """Estimations montée/maintien/relégation et simulation « et si » (§28-29).
 
-Méthode volontairement simple et explicable — pas de modèle statistique
-opaque. Pour chaque joueur encore en course, on calcule le **meilleur** et le
-**pire** rang final mathématiquement atteignables compte tenu des matchs
-restants (lui gagnant tout pendant que les autres perdent tout, et
-inversement), puis on interpole linéairement la proportion de cet intervalle
-qui recoupe chaque zone de mouvement. Architecture ouverte à un modèle plus
-fin par la suite (il suffit de remplacer ``movement_probabilities``).
+Méthode statistique simple et explicable (pas d'apprentissage automatique) :
+les matchs restants de la division sont **simulés** un grand nombre de fois, la
+probabilité qu'un joueur gagne un match étant tirée de sa forme actuelle
+(taux de victoires lissé, formule « log5 » face à l'adversaire). La part des
+classements finaux simulés qui tombent dans chaque zone de mouvement donne les
+pourcentages affichés.
+
+Pourquoi pas de simples bornes « meilleur / pire cas » (version initiale) :
+tant qu'il reste beaucoup de matchs, ces bornes couvrent tout le tableau et les
+pourcentages ne bougent pas d'un résultat à l'autre. La simulation, elle,
+réagit à chaque résultat validé. Elle est **déterministe** (graine dérivée de
+l'état du classement) : deux actualisations sans nouveau résultat affichent
+exactement les mêmes chiffres. Le meilleur et le pire rang mathématiquement
+atteignables restent calculés et exposés.
 
 Ce module ne persiste jamais rien : les résultats réels ne sont pas modifiés.
 """
 from __future__ import annotations
+
+import hashlib
+import random
 
 from django.db.models import Q
 
@@ -79,6 +89,78 @@ def _remaining_counts_for_phase(phase, participation_ids) -> dict[int, int]:
     return counts
 
 
+def _remaining_fixtures(phase, participation_ids) -> list[tuple[int, int]]:
+    """Matchs restants entre joueurs encore en course (byes exclus)."""
+    from competition.models import Match
+
+    ids = set(participation_ids)
+    pairs = Match.objects.filter(
+        phase=phase,
+        status__in=[MatchStatus.SCHEDULED, MatchStatus.UPCOMING, MatchStatus.POSTPONED],
+        player2__isnull=False,
+    ).values_list("player1_id", "player2_id")
+    return [(p1, p2) for p1, p2 in pairs if p1 in ids and p2 in ids]
+
+
+def _win_probability(rate_a: float, rate_b: float) -> float:
+    """Formule « log5 » : chance que A batte B d'après leurs taux de victoires."""
+    num = rate_a * (1 - rate_b)
+    den = num + rate_b * (1 - rate_a)
+    return num / den if den else 0.5
+
+
+def _simulate_final_rank_distribution(target_id, stats, fixtures, settings_obj) -> dict[int, float]:
+    """Distribution ``{rang final: probabilité}`` du joueur ``target_id``.
+
+    Départage des égalités dans la simulation : points, puis différence de score
+    actuelle, puis tirage au sort — une approximation assumée (le classement
+    officiel applique la chaîne de départage complète de l'édition)."""
+    ids = sorted(stats)
+    rates = {
+        pid: (stats[pid]["wins"] + 0.5 * stats[pid]["draws"] + 1) / (stats[pid]["played"] + 2)
+        for pid in ids
+    }
+    base_points = {pid: stats[pid]["points"] for pid in ids}
+    score_diff = {pid: stats[pid]["score_diff"] for pid in ids}
+    win_pts, loss_pts = settings_obj.points_win, settings_obj.points_loss
+
+    if not fixtures:
+        ahead = sum(
+            1
+            for other in ids
+            if other != target_id
+            and (base_points[other], score_diff[other]) > (base_points[target_id], score_diff[target_id])
+        )
+        return {ahead + 1: 1.0}
+
+    win_prob = [_win_probability(rates[p1], rates[p2]) for p1, p2 in fixtures]
+    # Budget constant d'opérations : peu de matchs -> beaucoup de simulations.
+    n_sims = max(300, min(3000, 300_000 // len(fixtures)))
+    seed_source = repr((target_id, sorted(base_points.items()), sorted(score_diff.items()), fixtures))
+    rng = random.Random(int(hashlib.md5(seed_source.encode()).hexdigest()[:12], 16))
+
+    counts: dict[int, int] = {}
+    for _ in range(n_sims):
+        points = dict(base_points)
+        for (p1, p2), p in zip(fixtures, win_prob):
+            if rng.random() < p:
+                points[p1] += win_pts
+                points[p2] += loss_pts
+            else:
+                points[p2] += win_pts
+                points[p1] += loss_pts
+        mine = (points[target_id], score_diff[target_id])
+        ahead = 0
+        for other in ids:
+            if other == target_id:
+                continue
+            theirs = (points[other], score_diff[other])
+            if theirs > mine or (theirs == mine and rng.random() < 0.5):
+                ahead += 1
+        counts[ahead + 1] = counts.get(ahead + 1, 0) + 1
+    return {rank: c / n_sims for rank, c in counts.items()}
+
+
 def movement_probabilities(participation) -> dict | None:
     championship, division = participation.championship, participation.division
     phase = _league_phase(championship, division)
@@ -110,34 +192,34 @@ def movement_probabilities(participation) -> dict | None:
     worst_rank = rank_of(worst_case, pid)
 
     n = len(participations)
-    span = worst_rank - best_rank + 1
-
-    def zone_overlap_pct(zone_ranks: set[int]) -> float:
-        if not zone_ranks:
-            return 0.0
-        if best_rank == worst_rank:
-            return 100.0 if best_rank in zone_ranks else 0.0
-        overlap_lo = max(best_rank, min(zone_ranks))
-        overlap_hi = min(worst_rank, max(zone_ranks))
-        overlap = max(0, overlap_hi - overlap_lo + 1)
-        return round(overlap / span * 100, 1)
 
     from championships.services import rule_rank_indices
 
-    promotion_pct = 0.0
-    relegation_pct = 0.0
+    promotion_ranks: set[int] = set()
+    relegation_ranks: set[int] = set()
     for rule in championship.movement_rules.filter(source_division=division, is_active=True):
-        pct = zone_overlap_pct(rule_rank_indices(rule, n))
+        ranks = rule_rank_indices(rule, n)
         if rule.movement_type == MovementType.PROMOTION:
-            promotion_pct = max(promotion_pct, pct)
+            promotion_ranks |= ranks
         else:
-            relegation_pct = max(relegation_pct, pct)
+            relegation_ranks |= ranks
+    finals_ranks = (
+        set(range(1, min(settings_obj.finals_qualifiers_count, n) + 1))
+        if settings_obj.finals_enabled
+        else set()
+    )
 
-    finals_pct = 0.0
-    if settings_obj.finals_enabled:
-        finals_pct = zone_overlap_pct(set(range(1, min(settings_obj.finals_qualifiers_count, n) + 1)))
+    fixtures = _remaining_fixtures(phase, stats.keys())
+    rank_probs = _simulate_final_rank_distribution(pid, stats, fixtures, settings_obj)
 
+    def zone_pct(zone_ranks: set[int]) -> float:
+        return round(sum(rank_probs.get(r, 0.0) for r in zone_ranks) * 100, 1)
+
+    promotion_pct = zone_pct(promotion_ranks)
+    relegation_pct = zone_pct(relegation_ranks)
+    finals_pct = zone_pct(finals_ranks)
     safe_pct = max(0.0, round(100 - promotion_pct - relegation_pct, 1))
+    expected_rank = round(sum(rank * prob for rank, prob in rank_probs.items()), 1)
 
     return {
         "best_rank": best_rank,
@@ -148,6 +230,7 @@ def movement_probabilities(participation) -> dict | None:
         "relegation_pct": relegation_pct,
         "finals_pct": finals_pct,
         "safe_pct": safe_pct,
+        "expected_rank": expected_rank,
     }
 
 

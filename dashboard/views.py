@@ -1,5 +1,7 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import never_cache
 from django.views.generic import TemplateView
 
 from championships.mixins import ChampionshipScopedMixin
@@ -9,6 +11,7 @@ from core.permissions import ChampionshipAdminRequiredMixin, is_global_admin
 from .services import admin_dashboard_context, player_dashboard_context
 
 
+@method_decorator(never_cache, name="dispatch")
 class AdminDashboardView(ChampionshipScopedMixin, ChampionshipAdminRequiredMixin, TemplateView):
     template_name = "dashboard/admin.html"
 
@@ -18,6 +21,7 @@ class AdminDashboardView(ChampionshipScopedMixin, ChampionshipAdminRequiredMixin
         return context
 
 
+@method_decorator(never_cache, name="dispatch")
 class PlayerDashboardView(LoginRequiredMixin, TemplateView):
     """« Mon espace » : vue joueur, ou repli utile pour un compte
     admin/arbitre sans profil joueur associé (§26 adapté à un compte staff)."""
@@ -79,6 +83,16 @@ class SimulationView(LoginRequiredMixin, TemplateView):
         ).first()
         context["phase"] = phase
         context["probabilities"] = movement_probabilities(participation)
+
+        from competition.services.daily_limit import daily_limit_status
+
+        daily = daily_limit_status(participation)
+        context["daily_limit"] = daily
+        if daily and daily["reached"]:
+            # La liste des matchs restants nomme les futurs adversaires : elle
+            # est masquée tant que la limite quotidienne est atteinte.
+            context["remaining_matches"] = []
+            return context
         if phase:
             context["remaining_matches"] = list(
                 Match.objects.filter(

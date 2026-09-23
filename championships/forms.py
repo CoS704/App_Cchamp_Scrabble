@@ -53,12 +53,14 @@ class ChampionshipSettingsForm(BootstrapFormMixin, forms.ModelForm):
             "result_confirmation_required",
             "double_entry_auto_confirm",
             "late_match_threshold_days",
+            "max_matches_per_day",
             "finals_enabled",
             "finals_qualifiers_count",
             "finals_format",
             "finals_third_place",
             "carry_over_between_editions",
         ]
+        widgets = {"max_matches_per_day": forms.NumberInput(attrs={"min": 1})}
 
 
 class DivisionForm(BootstrapFormMixin, forms.ModelForm):

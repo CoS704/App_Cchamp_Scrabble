@@ -118,6 +118,10 @@
           <dd class="col-5">{{ championship.settings.round_robin_legs }} confrontation(s)</dd>
           <dt class="col-7">Saisie des résultats</dt>
           <dd class="col-5">{{ championship.settings.get_result_entry_policy_display }}</dd>
+          <dt class="col-7">Matchs max. par jour et par joueur</dt>
+          <dd class="col-5">
+            {% if championship.settings.max_matches_per_day %}{{ championship.settings.max_matches_per_day }}{% else %}Illimité{% endif %}
+          </dd>
           <dt class="col-7">Phase finale</dt>
           <dd class="col-5">
             {% if championship.settings.finals_enabled %}
