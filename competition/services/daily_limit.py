@@ -20,8 +20,8 @@ _PLAYED_RESULT_STATUSES = [
 ]
 
 
-def matches_played_today(participation, *, today=None) -> int:
-    """Nombre de matchs joués aujourd'hui (jour local) par ``participation``.
+def matches_played_today_qs(participation, *, today=None):
+    """Matchs joués aujourd'hui (jour local) par ``participation``.
 
     Un match est « joué aujourd'hui » si son résultat a été validé aujourd'hui
     (``played_at``) ou si une saisie de résultat a été faite aujourd'hui. Les
@@ -38,8 +38,11 @@ def matches_played_today(participation, *, today=None) -> int:
             | Q(submissions__submitted_at__date=today, submissions__is_superseded=False)
         )
         .distinct()
-        .count()
     )
+
+
+def matches_played_today(participation, *, today=None) -> int:
+    return matches_played_today_qs(participation, today=today).count()
 
 
 def daily_limit_status(participation, *, today=None) -> dict | None:

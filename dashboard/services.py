@@ -321,14 +321,28 @@ def player_dashboard_context(user):
 
     daily_limit = daily_limit_status(participation)
     next_match_hidden = bool(daily_limit and daily_limit["reached"])
-    shown = championship.settings.upcoming_matches_shown
     if daily_limit:
-        # Jamais plus d'adversaires dévoilés que de matchs autorisés aujourd'hui.
-        shown = min(shown, max(daily_limit["limit"] - daily_limit["played_today"], 0))
+        # Avec une limite quotidienne, on dévoile TOUS les matchs de la journée
+        # (le quota restant), quel que soit « prochains matchs affichés » : ce
+        # dernier réglage ne s'applique que sans limite. Jamais au-delà du quota.
+        shown = max(daily_limit["limit"] - daily_limit["played_today"], 0)
+    else:
+        shown = championship.settings.upcoming_matches_shown
     next_matches = [] if next_match_hidden else list(upcoming_qs[:shown])
     next_match = next_matches[0] if next_matches else None
     if next_match_hidden:
         pending_confirmations = []  # ne révèle rien de plus que nécessaire
+    # Matchs déjà joués aujourd'hui : ils font partie des « matchs du jour ».
+    todays_matches = []
+    if daily_limit:
+        from competition.services.daily_limit import matches_played_today_qs
+
+        todays_matches = [
+            _format_match_for(participation, m)
+            for m in matches_played_today_qs(participation)
+            .select_related("player1__player", "player2__player")
+            .order_by("played_at", "id")
+        ]
     upcoming_count = upcoming_qs.count()
     remaining = upcoming_count + len(pending_confirmations)
     recent_matches = [
@@ -349,6 +363,7 @@ def player_dashboard_context(user):
         "total_rows": total_rows,
         "next_match": next_match,
         "next_match_opponent": _opponent_for(participation, next_match),
+        "todays_matches": todays_matches,
         "more_upcoming": 0 if next_match_hidden else max(upcoming_count - len(next_matches), 0),
         "next_matches": [
             {"match": m, "opponent": _opponent_for(participation, m)} for m in next_matches

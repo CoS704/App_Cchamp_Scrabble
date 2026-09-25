@@ -185,8 +185,9 @@ class ChampionshipSettings(TimeStampedModel):
         validators=[MinValueValidator(1)],
         help_text=(
             "Nombre de prochains matchs montrés à chaque joueur dans « Mon espace ». "
-            "Si une limite de matchs par jour est définie, l'affichage ne dépasse "
-            "jamais ce qu'il reste à jouer aujourd'hui."
+            "Ne s'applique que sans limite de matchs par jour : avec une limite, "
+            "tous les matchs de la journée sont dévoilés (autant que la limite) et "
+            "jamais davantage."
         ),
     )
     max_matches_per_day = models.PositiveSmallIntegerField(

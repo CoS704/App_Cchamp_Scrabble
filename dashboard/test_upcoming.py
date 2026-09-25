@@ -74,6 +74,42 @@ class UpcomingMatchesTests(TestCase):
         self.assertContains(resp, "adv_id_1")
         self.assertNotContains(resp, "adv_id_2")
 
+    def test_daily_limit_reveals_the_whole_days_quota_regardless_of_upcoming_setting(self):
+        """Avec une limite de 3 matchs/jour, les 3 matchs de la journée sont
+        dévoilés d'emblée, même si « prochains matchs affichés » vaut 1."""
+        self._set(upcoming_matches_shown=1, max_matches_per_day=3)
+        resp = self.client.get("/mon-espace/")
+        for i in (1, 2, 3):
+            self.assertContains(resp, f"adv_id_{i}")
+        self.assertNotContains(resp, "adv_id_4")
+        self.assertContains(resp, "Vos matchs du jour")
+
+    def test_daily_quota_follows_the_setting_dynamically(self):
+        self._set(upcoming_matches_shown=1, max_matches_per_day=2)
+        resp = self.client.get("/mon-espace/")
+        self.assertContains(resp, "adv_id_2")
+        self.assertNotContains(resp, "adv_id_3")
+        self._set(max_matches_per_day=4)
+        resp = self.client.get("/mon-espace/")
+        self.assertContains(resp, "adv_id_4")
+
+    def test_matches_already_played_today_are_listed_with_the_remaining_ones(self):
+        """Limite 3, 1 match déjà joué aujourd'hui : on voit ce match joué
+        (avec son score) + les 2 restants — les 3 matchs de la journée."""
+        played = self.matches[0]
+        played.score1, played.score2 = 410, 350
+        played.result_status, played.status = ResultStatus.VALIDATED, "COMPLETED"
+        played.counts_for_standings = True
+        played.played_at = timezone.now()
+        played.save()
+        self._set(max_matches_per_day=3)
+        resp = self.client.get("/mon-espace/")
+        self.assertContains(resp, "adv_id_1")  # joué aujourd'hui
+        self.assertContains(resp, "410 - 350")
+        self.assertContains(resp, "adv_id_2")
+        self.assertContains(resp, "adv_id_3")
+        self.assertNotContains(resp, "adv_id_4")
+
     def test_result_awaiting_confirmation_is_listed_separately(self):
         pending = self.matches[0]
         pending.result_status = ResultStatus.SUBMITTED

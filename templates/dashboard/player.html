@@ -140,7 +140,7 @@
       <div class="col-12 col-md-6">
         <div class="chart-card card h-100">
           <div class="card-header">
-            <i class="bi bi-calendar-event me-2"></i>{% if next_matches|length == 1 %}Prochain match{% else %}Prochains matchs{% endif %}
+            <i class="bi bi-calendar-event me-2"></i>{% if daily_limit %}Vos matchs du jour{% elif next_matches|length == 1 %}Prochain match{% else %}Prochains matchs{% endif %}
           </div>
           <div class="card-body">
             {% if daily_limit %}
@@ -148,6 +148,23 @@
                 <i class="bi bi-calendar-day me-1"></i>Matchs joués aujourd'hui :
                 <strong>{{ daily_limit.played_today }} / {{ daily_limit.limit }}</strong>
               </p>
+              {% for item in todays_matches %}
+                <div class="d-flex justify-content-between align-items-center border rounded px-3 py-2 mb-2 bg-light">
+                  <span>
+                    <span class="badge {% if item.result == 'V' %}text-bg-success{% elif item.result == 'D' %}text-bg-danger{% else %}text-bg-secondary{% endif %} me-1">
+                      {{ item.result|default:"…" }}
+                    </span>
+                    <span class="badge text-bg-light border me-1">Joué</span>
+                    vs {{ item.opponent.player|default:"Exempt" }}
+                    {% if item.opponent.player.scrabblego_id %}
+                      <span class="text-muted small">({{ item.opponent.player.scrabblego_id }})</span>
+                    {% endif %}
+                  </span>
+                  <span class="text-muted">
+                    {% if item.my_score is not None %}{{ item.my_score }} - {{ item.opp_score }}{% else %}à confirmer{% endif %}
+                  </span>
+                </div>
+              {% endfor %}
             {% endif %}
 
             {% for item in pending_confirmations %}
@@ -168,7 +185,7 @@
               {% for item in next_matches %}
                 <div class="{% if not forloop.last %}border-bottom pb-3 mb-3{% endif %}">
                   <p class="mb-1 fw-medium">
-                    {% if forloop.first %}<span class="badge text-bg-primary me-1">Prochain</span>{% else %}<span class="badge text-bg-light border me-1">Ensuite</span>{% endif %}
+                    {% if daily_limit %}<span class="badge text-bg-primary me-1">À jouer</span>{% elif forloop.first %}<span class="badge text-bg-primary me-1">Prochain</span>{% else %}<span class="badge text-bg-light border me-1">Ensuite</span>{% endif %}
                     {{ item.match.player1.player }} vs {{ item.match.player2.player|default:"Exempt" }}
                   </p>
                   {% if item.opponent %}
