@@ -300,11 +300,20 @@ def player_dashboard_context(user):
         phase__championship=championship, phase__division=division
     ).filter(Q(player1=participation) | Q(player2=participation))
 
-    next_match = (
-        base_qs.filter(status__in=[MatchStatus.SCHEDULED, MatchStatus.UPCOMING, MatchStatus.POSTPONED])
+    # Prochains matchs = à jouer (aucun résultat saisi). Ceux dont un résultat
+    # attend déjà confirmation sont listés à part : le joueur doit les confirmer.
+    upcoming_qs = (
+        base_qs.filter(
+            status__in=[MatchStatus.SCHEDULED, MatchStatus.UPCOMING, MatchStatus.POSTPONED],
+            result_status__in=[ResultStatus.NONE, ResultStatus.REJECTED],
+        )
         .select_related("player1__player", "player2__player", "matchday")
         .order_by("scheduled_date", "id")
-        .first()
+    )
+    pending_confirmations = list(
+        base_qs.filter(result_status__in=[ResultStatus.SUBMITTED, ResultStatus.CONFIRMED])
+        .select_related("player1__player", "player2__player", "matchday")
+        .order_by("scheduled_date", "id")
     )
     # Limite quotidienne : une fois atteinte, le prochain adversaire n'est pas
     # dévoilé (ni le match, ni son identifiant ScrabbleGO) avant le lendemain.
@@ -312,11 +321,16 @@ def player_dashboard_context(user):
 
     daily_limit = daily_limit_status(participation)
     next_match_hidden = bool(daily_limit and daily_limit["reached"])
+    shown = championship.settings.upcoming_matches_shown
+    if daily_limit:
+        # Jamais plus d'adversaires dévoilés que de matchs autorisés aujourd'hui.
+        shown = min(shown, max(daily_limit["limit"] - daily_limit["played_today"], 0))
+    next_matches = [] if next_match_hidden else list(upcoming_qs[:shown])
+    next_match = next_matches[0] if next_matches else None
     if next_match_hidden:
-        next_match = None
-    remaining = base_qs.filter(
-        status__in=[MatchStatus.SCHEDULED, MatchStatus.UPCOMING, MatchStatus.POSTPONED]
-    ).count()
+        pending_confirmations = []  # ne révèle rien de plus que nécessaire
+    upcoming_count = upcoming_qs.count()
+    remaining = upcoming_count + len(pending_confirmations)
     recent_matches = [
         _format_match_for(participation, m)
         for m in base_qs.filter(result_status=ResultStatus.VALIDATED)
@@ -335,6 +349,14 @@ def player_dashboard_context(user):
         "total_rows": total_rows,
         "next_match": next_match,
         "next_match_opponent": _opponent_for(participation, next_match),
+        "more_upcoming": 0 if next_match_hidden else max(upcoming_count - len(next_matches), 0),
+        "next_matches": [
+            {"match": m, "opponent": _opponent_for(participation, m)} for m in next_matches
+        ],
+        "pending_confirmations": [
+            {"match": m, "opponent": _opponent_for(participation, m)}
+            for m in pending_confirmations
+        ],
         "next_match_hidden": next_match_hidden,
         "daily_limit": daily_limit,
         "remaining": remaining,

@@ -26,6 +26,7 @@ from .forms import (
 )
 from .mixins import MatchParticipantOrStaffMixin, MatchScopedMixin
 from .models import Match
+from .services.counts import participation_match_counts
 from .services.daily_limit import next_opponent_hidden
 from .services.match import cancel_match, declare_forfeit, postpone_match, reschedule_match
 from .services.result import participation_for_user, reject_result, submit_result
@@ -310,10 +311,27 @@ class MatchResultView(MatchParticipantOrStaffMixin, View):
         ResultStatus.DISPUTED: (AuditAction.DISPUTE_OPENED, "warning", "Litige : les scores saisis ne correspondent pas."),
     }
 
+    def _player_counts(self):
+        """Matchs déjà joués par chaque adversaire (avant celui-ci), visibles
+        du staff au moment de valider : utile pour repérer un joueur qui en
+        a déjà beaucoup joué aujourd'hui ou qui est en retard."""
+        if not can_referee(self.request.user, self.championship, self.match.division):
+            return []
+        return [
+            {
+                "player": participation.player,
+                "counts": participation_match_counts(participation, exclude_match=self.match),
+                "daily_limit": self.championship.settings.max_matches_per_day,
+            }
+            for participation in (self.match.player1, self.match.player2)
+            if participation is not None
+        ]
+
     def _context(self, form):
         return {
             "championship": self.championship,
             "match": self.match,
+            "player_counts": self._player_counts(),
             "form": form,
             "submissions": self.match.submissions.filter(is_superseded=False)
             .select_related("submitted_by", "submitted_by_participation__player")

@@ -139,7 +139,9 @@
     <div class="row g-4">
       <div class="col-12 col-md-6">
         <div class="chart-card card h-100">
-          <div class="card-header"><i class="bi bi-calendar-event me-2"></i>Prochain match</div>
+          <div class="card-header">
+            <i class="bi bi-calendar-event me-2"></i>{% if next_matches|length == 1 %}Prochain match{% else %}Prochains matchs{% endif %}
+          </div>
           <div class="card-body">
             {% if daily_limit %}
               <p class="small text-muted mb-2">
@@ -147,36 +149,56 @@
                 <strong>{{ daily_limit.played_today }} / {{ daily_limit.limit }}</strong>
               </p>
             {% endif %}
+
+            {% for item in pending_confirmations %}
+              <div class="alert alert-warning py-2 mb-2">
+                <i class="bi bi-hourglass-split me-1"></i>
+                Résultat à confirmer contre <strong>{{ item.opponent.player|default:"Exempt" }}</strong>
+                <a href="{% url 'competition:result' championship.slug item.match.pk %}" class="alert-link ms-1">Voir</a>
+              </div>
+            {% endfor %}
+
             {% if next_match_hidden %}
               <div class="alert alert-info mb-0">
                 <i class="bi bi-lock me-1"></i>
                 Limite de {{ daily_limit.limit }} match{{ daily_limit.limit|pluralize:"s" }} par jour atteinte :
                 votre prochain adversaire sera dévoilé demain.
               </div>
-            {% elif next_match %}
-              <p class="mb-1 fw-medium">
-                {{ next_match.player1.player }} vs {{ next_match.player2.player|default:"Exempt" }}
-              </p>
-              {% if next_match_opponent %}
-                <p class="mb-2">
-                  <i class="bi bi-controller me-1 text-muted"></i>
-                  Identifiant ScrabbleGO de l'adversaire :
-                  {% if next_match_opponent.player.scrabblego_id %}
-                    <span class="badge text-bg-light border">{{ next_match_opponent.player.scrabblego_id }}</span>
-                  {% else %}
-                    <span class="text-muted fst-italic">non renseigné</span>
+            {% elif next_matches %}
+              {% for item in next_matches %}
+                <div class="{% if not forloop.last %}border-bottom pb-3 mb-3{% endif %}">
+                  <p class="mb-1 fw-medium">
+                    {% if forloop.first %}<span class="badge text-bg-primary me-1">Prochain</span>{% else %}<span class="badge text-bg-light border me-1">Ensuite</span>{% endif %}
+                    {{ item.match.player1.player }} vs {{ item.match.player2.player|default:"Exempt" }}
+                  </p>
+                  {% if item.opponent %}
+                    <p class="mb-1">
+                      <i class="bi bi-controller me-1 text-muted"></i>
+                      ScrabbleGO de l'adversaire :
+                      {% if item.opponent.player.scrabblego_id %}
+                        <span class="badge text-bg-light border">{{ item.opponent.player.scrabblego_id }}</span>
+                      {% else %}
+                        <span class="text-muted fst-italic">non renseigné</span>
+                      {% endif %}
+                    </p>
                   {% endif %}
+                  <p class="text-muted mb-2">
+                    {% if item.match.matchday %}Journée {{ item.match.matchday.number }} — {% endif %}
+                    {{ item.match.scheduled_date|date:"d/m/Y"|default:"Date à définir" }}
+                    <span class="badge text-bg-secondary ms-1">{{ item.match.get_status_display }}</span>
+                  </p>
+                  <a href="{% url 'competition:result' championship.slug item.match.pk %}" class="btn btn-sm {% if forloop.first %}btn-primary{% else %}btn-outline-primary{% endif %}">
+                    Saisir le résultat
+                  </a>
+                </div>
+              {% endfor %}
+              {% if more_upcoming %}
+                <p class="small text-muted mt-3 mb-0">
+                  + {{ more_upcoming }} autre{{ more_upcoming|pluralize }} match{{ more_upcoming|pluralize:"s" }} à venir
+                  (adversaires dévoilés au fil de la saison).
                 </p>
               {% endif %}
-              <p class="text-muted mb-2">
-                {% if next_match.matchday %}Journée {{ next_match.matchday.number }} — {% endif %}
-                {{ next_match.scheduled_date|date:"d/m/Y"|default:"Date à définir" }}
-                <span class="badge text-bg-secondary ms-1">{{ next_match.get_status_display }}</span>
-              </p>
-              <a href="{% url 'competition:result' championship.slug next_match.pk %}" class="btn btn-sm btn-primary">
-                Saisir le résultat
-              </a>
-            {% else %}
+            {% elif not pending_confirmations %}
               <p class="text-muted mb-0">Aucun match à venir.</p>
             {% endif %}
           </div>

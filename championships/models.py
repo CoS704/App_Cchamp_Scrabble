@@ -179,6 +179,16 @@ class ChampionshipSettings(TimeStampedModel):
             "est en retard dès le lendemain de sa date prévue."
         ),
     )
+    upcoming_matches_shown = models.PositiveSmallIntegerField(
+        "prochains matchs affichés par joueur",
+        default=2,
+        validators=[MinValueValidator(1)],
+        help_text=(
+            "Nombre de prochains matchs montrés à chaque joueur dans « Mon espace ». "
+            "Si une limite de matchs par jour est définie, l'affichage ne dépasse "
+            "jamais ce qu'il reste à jouer aujourd'hui."
+        ),
+    )
     max_matches_per_day = models.PositiveSmallIntegerField(
         "matchs maximum par jour et par joueur",
         null=True,

@@ -37,6 +37,31 @@
   </div>
 {% endif %}
 
+{% if player_counts %}
+<div class="card mb-4" style="max-width: 560px;">
+  <div class="card-body">
+    <h2 class="h6"><i class="bi bi-bar-chart-steps me-1"></i>Matchs déjà joués (avant celui-ci)</h2>
+    <div class="row g-3">
+      {% for item in player_counts %}
+        <div class="col-6">
+          <div class="fw-medium mb-1">{{ item.player }}</div>
+          <div class="display-6 lh-1">{{ item.counts.played }}</div>
+          <div class="small text-muted">
+            joué{{ item.counts.played|pluralize:"s" }} · {{ item.counts.remaining }} restant{{ item.counts.remaining|pluralize:"s" }}
+            {% if item.counts.awaiting %}· {{ item.counts.awaiting }} en attente{% endif %}
+            {% if item.counts.forfeits %}· {{ item.counts.forfeits }} forfait{{ item.counts.forfeits|pluralize:"s" }}{% endif %}
+          </div>
+          <div class="small mt-1">
+            <i class="bi bi-calendar-day me-1"></i>Aujourd'hui :
+            <strong>{{ item.counts.played_today }}</strong>{% if item.daily_limit %} / {{ item.daily_limit }}{% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {% if submissions %}
 <div class="card mb-4" style="max-width: 560px;">
   <div class="card-body">
