@@ -1,7 +1,17 @@
 """Limite de matchs par jour et par joueur (réglage d'édition).
 
-Quand un joueur a atteint le nombre de matchs autorisé pour la journée, son
-prochain adversaire ne lui est pas dévoilé avant le lendemain.
+Quand un joueur a joué tous les matchs de sa journée calendaire, son prochain
+adversaire ne lui est pas dévoilé avant le lendemain.
+
+Le « jour » est le **jour calendaire prévu** du match (``scheduled_date``), pas
+le moment où il est joué : un match en retard (prévu un jour passé) n'est pas
+un match du jour, ne consomme donc pas le quota d'aujourd'hui, et reste
+toujours accessible. Avec une limite de N matchs/jour, le calendrier regroupe
+N journées sur une même date (voir ``scheduling.redate_league_calendar``).
+
+Repli : une édition dont le calendrier n'a aucune date (matchs non datés) n'a
+pas de « jour calendaire » ; on compte alors, comme avant, les matchs joués
+aujourd'hui d'après l'horodatage du résultat.
 """
 from __future__ import annotations
 
@@ -20,19 +30,52 @@ _PLAYED_RESULT_STATUSES = [
 ]
 
 
-def matches_played_today_qs(participation, *, today=None):
-    """Matchs joués aujourd'hui (jour local) par ``participation``.
-
-    Un match est « joué aujourd'hui » si son résultat a été validé aujourd'hui
-    (``played_at``) ou si une saisie de résultat a été faite aujourd'hui. Les
-    forfaits et matchs non joués ne comptent pas.
-    """
+def _participation_matches(participation):
     from ..models import Match
 
+    return Match.objects.filter(Q(player1=participation) | Q(player2=participation))
+
+
+def _played_q():
+    return Q(result_status__in=_PLAYED_RESULT_STATUSES, outcome_type=OutcomeType.NORMAL)
+
+
+def uses_calendar_days(participation) -> bool:
+    """Vrai si le calendrier du joueur porte des dates (jours calendaires)."""
+    return _participation_matches(participation).filter(scheduled_date__isnull=False).exists()
+
+
+def todays_scheduled_matches_qs(participation, *, today=None):
+    """Matchs prévus aujourd'hui (jour local), joués ou non."""
     today = today or timezone.localdate()
+    return _participation_matches(participation).filter(scheduled_date=today)
+
+
+def late_unplayed_matches_qs(participation, *, today=None):
+    """Matchs non joués dont la date prévue est passée (en retard)."""
+    from core.enums import MatchStatus
+
+    today = today or timezone.localdate()
+    return _participation_matches(participation).filter(
+        scheduled_date__lt=today,
+        status__in=[MatchStatus.SCHEDULED, MatchStatus.UPCOMING, MatchStatus.POSTPONED],
+        result_status__in=[ResultStatus.NONE, ResultStatus.REJECTED],
+    )
+
+
+def matches_played_today_qs(participation, *, today=None):
+    """Matchs du jour déjà joués (quota consommé).
+
+    Avec un calendrier daté : les matchs **prévus aujourd'hui** dont un
+    résultat est saisi. Sans dates (repli) : les matchs dont le résultat a été
+    validé/saisi aujourd'hui. Forfaits et matchs non joués exclus.
+    """
+    today = today or timezone.localdate()
+    if uses_calendar_days(participation):
+        return todays_scheduled_matches_qs(participation, today=today).filter(_played_q())
     return (
-        Match.objects.filter(Q(player1=participation) | Q(player2=participation))
-        .filter(result_status__in=_PLAYED_RESULT_STATUSES, outcome_type=OutcomeType.NORMAL)
+        _participation_matches(participation)
+        .filter(_played_q())
         .filter(
             Q(played_at__date=today)
             | Q(submissions__submitted_at__date=today, submissions__is_superseded=False)
@@ -57,3 +100,9 @@ def daily_limit_status(participation, *, today=None) -> dict | None:
 def next_opponent_hidden(participation, *, today=None) -> bool:
     status = daily_limit_status(participation, today=today)
     return bool(status and status["reached"])
+
+
+def match_is_late(match, *, today=None) -> bool:
+    """Match non joué dont la date prévue est déjà passée."""
+    today = today or timezone.localdate()
+    return match.scheduled_date is not None and match.scheduled_date < today

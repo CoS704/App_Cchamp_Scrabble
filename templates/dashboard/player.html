@@ -215,8 +215,31 @@
                   (adversaires dévoilés au fil de la saison).
                 </p>
               {% endif %}
-            {% elif not pending_confirmations %}
+            {% elif not pending_confirmations and not late_matches %}
               <p class="text-muted mb-0">Aucun match à venir.</p>
+            {% endif %}
+
+            {% if late_matches %}
+              <hr>
+              <h3 class="h6 text-warning-emphasis">
+                <i class="bi bi-clock-history me-1"></i>Matchs en retard
+                <span class="badge text-bg-warning text-dark ms-1">{{ late_matches|length }}</span>
+              </h3>
+              <p class="small text-muted">Prévus un jour passé : ils ne comptent pas dans vos matchs du jour.</p>
+              {% for item in late_matches %}
+                <div class="d-flex justify-content-between align-items-center border rounded px-3 py-2 mb-2">
+                  <span>
+                    vs {{ item.opponent.player|default:"Exempt" }}
+                    {% if item.opponent.player.scrabblego_id %}
+                      <span class="text-muted small">({{ item.opponent.player.scrabblego_id }})</span>
+                    {% endif %}
+                    <span class="text-muted small d-block">prévu le {{ item.match.scheduled_date|date:"d/m/Y" }}</span>
+                  </span>
+                  <a href="{% url 'competition:result' championship.slug item.match.pk %}" class="btn btn-sm btn-outline-warning">
+                    Saisir le résultat
+                  </a>
+                </div>
+              {% endfor %}
             {% endif %}
           </div>
         </div>

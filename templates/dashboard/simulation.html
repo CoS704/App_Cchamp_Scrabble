@@ -30,7 +30,7 @@
   </div>
   {% endif %}
 
-  {% if daily_limit and daily_limit.reached %}
+  {% if daily_limit and daily_limit.reached and not remaining_matches %}
     <div class="alert alert-info">
       <i class="bi bi-lock me-1"></i>
       Limite de {{ daily_limit.limit }} match{{ daily_limit.limit|pluralize:"s" }} par jour atteinte :

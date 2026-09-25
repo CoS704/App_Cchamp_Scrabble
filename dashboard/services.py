@@ -315,36 +315,45 @@ def player_dashboard_context(user):
         .select_related("player1__player", "player2__player", "matchday")
         .order_by("scheduled_date", "id")
     )
-    # Limite quotidienne : une fois atteinte, le prochain adversaire n'est pas
-    # dévoilé (ni le match, ni son identifiant ScrabbleGO) avant le lendemain.
-    from competition.services.daily_limit import daily_limit_status
 
+    # Matchs en retard (date prévue passée) : hors « matchs du jour », donc ni
+    # comptés dans le quota quotidien ni masqués par lui — toujours visibles.
+    from competition.services.daily_limit import (
+        daily_limit_status,
+        matches_played_today_qs,
+        uses_calendar_days,
+    )
+
+    today = timezone.localdate()
+    late_matches = list(upcoming_qs.filter(scheduled_date__lt=today))
+    not_late_qs = upcoming_qs.exclude(scheduled_date__lt=today)
+
+    # Limite quotidienne : une fois tous les matchs du jour joués, le prochain
+    # adversaire n'est pas dévoilé (ni le match, ni son identifiant ScrabbleGO)
+    # avant le lendemain.
     daily_limit = daily_limit_status(participation)
     next_match_hidden = bool(daily_limit and daily_limit["reached"])
-    if daily_limit:
-        # Avec une limite quotidienne, on dévoile TOUS les matchs de la journée
-        # (le quota restant), quel que soit « prochains matchs affichés » : ce
-        # dernier réglage ne s'applique que sans limite. Jamais au-delà du quota.
-        shown = max(daily_limit["limit"] - daily_limit["played_today"], 0)
-    else:
-        shown = championship.settings.upcoming_matches_shown
-    next_matches = [] if next_match_hidden else list(upcoming_qs[:shown])
-    next_match = next_matches[0] if next_matches else None
-    if next_match_hidden:
-        pending_confirmations = []  # ne révèle rien de plus que nécessaire
-    # Matchs déjà joués aujourd'hui : ils font partie des « matchs du jour ».
     todays_matches = []
     if daily_limit:
-        from competition.services.daily_limit import matches_played_today_qs
-
+        # Avec une limite : TOUS les matchs du jour calendaire (le quota
+        # restant), quel que soit « prochains matchs affichés » (réservé au
+        # cas sans limite). Jamais au-delà du quota.
+        allowance = max(daily_limit["limit"] - daily_limit["played_today"], 0)
+        candidates = not_late_qs
+        if uses_calendar_days(participation):
+            candidates = candidates.filter(scheduled_date=today)
+        next_matches = [] if next_match_hidden else list(candidates[:allowance])
         todays_matches = [
             _format_match_for(participation, m)
             for m in matches_played_today_qs(participation)
             .select_related("player1__player", "player2__player")
             .order_by("played_at", "id")
         ]
-    upcoming_count = upcoming_qs.count()
-    remaining = upcoming_count + len(pending_confirmations)
+    else:
+        next_matches = list(not_late_qs[: championship.settings.upcoming_matches_shown])
+    next_match = next_matches[0] if next_matches else None
+    upcoming_count = not_late_qs.count()
+    remaining = upcoming_qs.count() + len(pending_confirmations)
     recent_matches = [
         _format_match_for(participation, m)
         for m in base_qs.filter(result_status=ResultStatus.VALIDATED)
@@ -364,7 +373,10 @@ def player_dashboard_context(user):
         "next_match": next_match,
         "next_match_opponent": _opponent_for(participation, next_match),
         "todays_matches": todays_matches,
-        "more_upcoming": 0 if next_match_hidden else max(upcoming_count - len(next_matches), 0),
+        "more_upcoming": max(upcoming_count - len(next_matches), 0),
+        "late_matches": [
+            {"match": m, "opponent": _opponent_for(participation, m)} for m in late_matches
+        ],
         "next_matches": [
             {"match": m, "opponent": _opponent_for(participation, m)} for m in next_matches
         ],

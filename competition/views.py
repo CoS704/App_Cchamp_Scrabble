@@ -27,7 +27,7 @@ from .forms import (
 from .mixins import MatchParticipantOrStaffMixin, MatchScopedMixin
 from .models import Match
 from .services.counts import participation_match_counts
-from .services.daily_limit import next_opponent_hidden
+from .services.daily_limit import match_is_late, next_opponent_hidden
 from .services.match import cancel_match, declare_forfeit, postpone_match, reschedule_match
 from .services.result import participation_for_user, reject_result, submit_result
 from .services.scheduling import (
@@ -347,6 +347,8 @@ class MatchResultView(MatchParticipantOrStaffMixin, View):
             return False
         if self.match.result_status not in (ResultStatus.NONE, ResultStatus.REJECTED):
             return False
+        if match_is_late(self.match):
+            return False  # un match en retard n'est pas un match du jour
         participation = participation_for_user(request.user, self.match)
         return participation is not None and next_opponent_hidden(participation)
 

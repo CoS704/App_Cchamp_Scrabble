@@ -84,17 +84,14 @@ class SimulationView(LoginRequiredMixin, TemplateView):
         context["phase"] = phase
         context["probabilities"] = movement_probabilities(participation)
 
-        from competition.services.daily_limit import daily_limit_status
+        from competition.services.daily_limit import daily_limit_status, match_is_late
 
         daily = daily_limit_status(participation)
         context["daily_limit"] = daily
-        if daily and daily["reached"]:
-            # La liste des matchs restants nomme les futurs adversaires : elle
-            # est masquée tant que la limite quotidienne est atteinte.
-            context["remaining_matches"] = []
-            return context
+        # Limite atteinte : la liste des matchs restants nommerait les futurs
+        # adversaires, on ne garde donc que les matchs en retard (hors quota du jour).
         if phase:
-            context["remaining_matches"] = list(
+            remaining = list(
                 Match.objects.filter(
                     phase=phase,
                     status__in=[MatchStatus.SCHEDULED, MatchStatus.UPCOMING, MatchStatus.POSTPONED],
@@ -102,6 +99,9 @@ class SimulationView(LoginRequiredMixin, TemplateView):
                 .filter(Q(player1=participation) | Q(player2=participation))
                 .select_related("player1__player", "player2__player")
             )
+            if daily and daily["reached"]:
+                remaining = [m for m in remaining if match_is_late(m)]
+            context["remaining_matches"] = remaining
         return context
 
     def post(self, request, *args, **kwargs):

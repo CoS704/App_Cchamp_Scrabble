@@ -105,7 +105,18 @@ class ChampionshipSettingsUpdateView(
     def form_valid(self, form):
         reason = form.cleaned_data.pop("override_reason", "")
         new_primary = form.cleaned_data["primary_tiebreak"]
+        limit_changed = "max_matches_per_day" in form.changed_data
         response = super().form_valid(form)
+        if limit_changed:
+            from competition.services.scheduling import redate_league_calendar
+
+            moved = redate_league_calendar(self.championship)
+            if moved:
+                messages.info(
+                    self.request,
+                    f"Dates du calendrier recalées sur le nombre de matchs par jour "
+                    f"({moved} journée(s) déplacée(s)) ; aucun match supprimé.",
+                )
         if new_primary != self._old_primary:
             services.regenerate_tiebreak_chain(self.championship, new_primary)
             messages.info(

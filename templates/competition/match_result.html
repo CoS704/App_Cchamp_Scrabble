@@ -52,7 +52,7 @@
             {% if item.counts.forfeits %}· {{ item.counts.forfeits }} forfait{{ item.counts.forfeits|pluralize:"s" }}{% endif %}
           </div>
           <div class="small mt-1">
-            <i class="bi bi-calendar-day me-1"></i>Aujourd'hui :
+            <i class="bi bi-calendar-day me-1"></i>Matchs du jour joués :
             <strong>{{ item.counts.played_today }}</strong>{% if item.daily_limit %} / {{ item.daily_limit }}{% endif %}
           </div>
         </div>
