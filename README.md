@@ -107,7 +107,7 @@ Comptes créés (mot de passe unique, **usage local uniquement**) :
 | `ALLOWED_HOSTS` | Hôtes autorisés (virgules) | `localhost,127.0.0.1` |
 | `DATABASE_URL` | Connexion PostgreSQL (vide = SQLite) | `postgres://…@…neon.tech/db?sslmode=require` |
 | `CSRF_TRUSTED_ORIGINS` | Origines de confiance CSRF | `https://mon-app.onrender.com` |
-| `TIME_ZONE` | Fuseau horaire | `Europe/Paris` |
+| `TIME_ZONE` | Fuseau horaire (définit aussi le « jour » de la limite de matchs par jour) | `Africa/Dakar` |
 | `EMAIL_HOST` | Serveur SMTP (facultatif — vide = e-mails journalisés seulement) | `smtp.gmail.com` |
 | `EMAIL_PORT` / `EMAIL_USE_TLS` | Port et TLS du serveur SMTP | `587` / `True` |
 | `EMAIL_HOST_USER` / `EMAIL_HOST_PASSWORD` | Identifiants SMTP | mot de passe d'application Gmail, clé API SendGrid… |

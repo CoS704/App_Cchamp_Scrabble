@@ -9,7 +9,10 @@ env = environ.Env(
     DEBUG=(bool, False),
     ALLOWED_HOSTS=(list, []),
     CSRF_TRUSTED_ORIGINS=(list, []),
-    TIME_ZONE=(str, "Europe/Paris"),
+    # Fuseau des joueurs (Sénégal = UTC, sans heure d'été). Il définit aussi le
+    # « jour » de la limite de matchs par jour : avec Europe/Paris, un match
+    # joué à 23h37 à Dakar comptait déjà pour le lendemain.
+    TIME_ZONE=(str, "Africa/Dakar"),
     CONN_MAX_AGE=(int, 600),
 )
 

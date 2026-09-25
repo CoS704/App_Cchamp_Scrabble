@@ -267,3 +267,50 @@ class ProgressChartTests(TestCase):
         self.assertEqual(sum(chart["data"]), 4)
         self.assertEqual(dict(zip(chart["labels"], chart["data"]))["En attente de validation"], 1)
         self.assertEqual(dict(zip(chart["labels"], chart["data"]))["Programmés"], 1)
+
+
+class DailyLimitTimezoneTests(TestCase):
+    """Un match validé à 23h37 UTC compte pour la veille à Dakar (UTC), mais
+    pour le lendemain à Paris : le « jour » suit le fuseau du projet."""
+
+    def _played_at_23h37_utc_yesterday(self):
+        from competition.services.daily_limit import matches_played_today
+
+        championship = make_championship(
+            name="TZ Championship", season="tz-1", status=ChampionshipStatus.IN_PROGRESS
+        )
+        division = make_division(championship)
+        phase = _league(championship, division)
+        me = register(championship, make_player("Me", "Tz"), division)
+        opp = register(championship, make_player("Opp", "Tz"), division)
+        now_utc = timezone.now().astimezone(datetime.timezone.utc)
+        yesterday_23h37 = (now_utc - datetime.timedelta(days=1)).replace(
+            hour=23, minute=37, second=0, microsecond=0
+        )
+        Match.objects.create(
+            championship=championship, division=division, phase=phase, player1=me, player2=opp,
+            score1=400, score2=300, result_status=ResultStatus.VALIDATED, status="COMPLETED",
+            counts_for_standings=True, played_at=yesterday_23h37,
+            pair_key=Match.compute_pair_key(me.id, opp.id),
+        )
+        return matches_played_today, me
+
+    def test_project_default_timezone_is_dakar(self):
+        from django.conf import settings
+
+        self.assertEqual(settings.TIME_ZONE, "Africa/Dakar")
+
+    def test_late_evening_match_belongs_to_yesterday_in_dakar(self):
+        from django.test import override_settings
+
+        count_today, me = self._played_at_23h37_utc_yesterday()
+        with override_settings(TIME_ZONE="Africa/Dakar"):
+            self.assertEqual(count_today(me), 0)
+
+    def test_same_match_would_count_today_in_paris(self):
+        """Contre-épreuve : c'est bien le fuseau qui décalait le décompte."""
+        from django.test import override_settings
+
+        count_today, me = self._played_at_23h37_utc_yesterday()
+        with override_settings(TIME_ZONE="Europe/Paris"):
+            self.assertEqual(count_today(me), 1)
