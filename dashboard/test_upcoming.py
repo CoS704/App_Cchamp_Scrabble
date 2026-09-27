@@ -382,6 +382,72 @@ class CalendarDatesFollowTheDailyLimitTests(TestCase):
             self.assertGreaterEqual(d, today)
 
 
+    def test_redate_moves_a_partially_played_matchday_as_a_whole(self):
+        """Régression : une journée figée dès qu'UN seul match y était joué
+        restait à une date passée pour tous les autres joueurs de cette même
+        journée, qui n'y étaient pour rien — l'admin n'avait pourtant fait
+        que changer le rythme quotidien."""
+        from competition.services.scheduling import generate_schedule, redate_league_calendar
+        from core.enums import MatchStatus, ResultStatus
+
+        championship, division = self._division_with_players(n_players=8, per_day=2)
+        start = datetime.date.today() - datetime.timedelta(days=4)
+        generate_schedule(championship=championship, division=division, start_date=start, interval_days=1)
+
+        # Journée 3 : 1 seul match sur 4 joué (les autres joueurs n'ont pas
+        # encore joué leur adversaire de cette journée).
+        one_match = Match.objects.filter(division=division, matchday__number=3).first()
+        one_match.status, one_match.result_status = MatchStatus.COMPLETED, ResultStatus.VALIDATED
+        one_match.score1, one_match.score2, one_match.counts_for_standings = 400, 300, True
+        one_match.save()
+
+        championship.settings.max_matches_per_day = 4  # rythme changé
+        championship.settings.save()
+        redate_league_calendar(championship)
+
+        today = datetime.date.today()
+        md3_dates = set(
+            Match.objects.filter(division=division, matchday__number=3).values_list("scheduled_date", flat=True)
+        )
+        self.assertEqual(len(md3_dates), 1)  # toute la journée bouge ensemble
+        self.assertGreaterEqual(md3_dates.pop(), today)  # plus jamais dans le passé
+
+
+    def test_redate_is_truly_idempotent_with_out_of_order_completed_rounds(self):
+        """Régression : le pas se déduisait de TOUTES les dates, y compris
+        celles des journées qu'on vient de déplacer — il changeait donc d'un
+        appel à l'autre et redéplaçait des journées à chaque nouvel appel."""
+        from competition.services.scheduling import generate_schedule, redate_league_calendar
+        from core.enums import MatchStatus, ResultStatus
+
+        championship, division = self._division_with_players(n_players=8, per_day=2)
+        start = datetime.date.today() - datetime.timedelta(days=5)
+        generate_schedule(championship=championship, division=division, start_date=start, interval_days=1)
+
+        # Journée 5 entièrement décidée alors que les journées 1 à 4 ne le
+        # sont pas encore (ordre d'achèvement réel, pas forcément séquentiel).
+        Match.objects.filter(division=division, matchday__number=5).update(
+            status=MatchStatus.COMPLETED, result_status=ResultStatus.VALIDATED,
+            score1=400, score2=300, counts_for_standings=True,
+        )
+
+        championship.settings.max_matches_per_day = 3
+        championship.settings.save()
+
+        first = redate_league_calendar(championship)
+        dates_after_first = list(
+            Match.objects.filter(division=division).order_by("id").values_list("scheduled_date", flat=True)
+        )
+        second = redate_league_calendar(championship)
+        dates_after_second = list(
+            Match.objects.filter(division=division).order_by("id").values_list("scheduled_date", flat=True)
+        )
+
+        self.assertGreater(first, 0)
+        self.assertEqual(second, 0)
+        self.assertEqual(dates_after_first, dates_after_second)
+
+
 class SettingsFormTriggersRedateTests(TestCase):
     """Régression : après avoir changé « matchs max. par jour » via le
     formulaire des paramètres, le calendrier n'était pas recalé — le recalage
@@ -429,4 +495,5 @@ class SettingsFormTriggersRedateTests(TestCase):
         self.assertEqual(dates[1], dates[2])
         self.assertEqual(dates[2], dates[3])
         self.assertNotEqual(dates[3], dates[4])
+
 

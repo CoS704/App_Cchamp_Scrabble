@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 from django.core.exceptions import ValidationError
+from django.db.models import Count, Q
 from django.utils import timezone
 
 from core.enums import ParticipationStatus, PhaseKind, ResultStatus
@@ -171,10 +172,14 @@ def redate_league_calendar(championship, *, settings_obj=None, today=None) -> in
     du calendrier : on ne peut pas régénérer (des résultats sont déjà
     validés), et les dates ne reflétaient pas le rythme réel des joueurs.
 
-    Une journée où au moins un match est déjà joué (terminé ou forfait) n'est
-    **jamais** déplacée : changer le rythme ne doit jamais faire passer un
+    Une journée n'est **jamais** déplacée une fois TOUS ses matchs décidés
+    (terminés ou forfait) : changer le rythme ne doit jamais faire passer un
     match déjà disputé pour « en retard » a posteriori, ni réécrire son
-    historique. Seules les journées encore entièrement à jouer sont recalées,
+    historique. Une journée seulement partiellement jouée (certains joueurs
+    ont déjà leur résultat, d'autres non) reste déplaçable dans son
+    ensemble — sinon les retardataires se retrouvent figés à une date passée
+    dès qu'un seul adversaire a joué le premier, sans qu'ils y soient pour
+    rien. Seules les journées encore entièrement à jouer sont recalées,
     à partir d'aujourd'hui (ou de la suite immédiate des journées déjà
     disputées si elle est plus tardive) — jamais dans le passé, même si un
     rythme plus soutenu comprimerait la fin de saison avant la date du jour.
@@ -194,23 +199,46 @@ def redate_league_calendar(championship, *, settings_obj=None, today=None) -> in
         dated = [md for md in matchdays if md.scheduled_date]
         if not dated:
             continue
-        distinct_dates = sorted({md.scheduled_date for md in dated})
-        step = (distinct_dates[1] - distinct_dates[0]).days if len(distinct_dates) > 1 else 1
-        step = step or 1
-
-        played_matchday_ids = set(
-            Match.objects.filter(
-                matchday__in=matchdays, status__in=[MatchStatus.COMPLETED, MatchStatus.FORFEIT]
-            ).values_list("matchday_id", flat=True)
+        # Une journée n'est « verrouillée » (jamais déplacée) que si TOUS ses
+        # matchs sont décidés — pas dès qu'un seul l'est. Un seul match validé
+        # sur 7 ne clôt pas la journée : les 6 autres, encore à jouer, doivent
+        # rester déplaçables (sinon ils se retrouvent figés à une date passée
+        # dès qu'un adversaire quelconque a joué en premier, et paraissent en
+        # retard sans raison).
+        counts = (
+            Matchday.objects.filter(id__in=[md.id for md in dated])
+            .annotate(
+                total=Count("matches"),
+                decided=Count(
+                    "matches",
+                    filter=Q(matches__status__in=[MatchStatus.COMPLETED, MatchStatus.FORFEIT]),
+                ),
+            )
         )
-        locked = [md for md in dated if md.id in played_matchday_ids]
-        pending = [md for md in dated if md.id not in played_matchday_ids]
+        fully_decided_ids = {c.id for c in counts if c.total and c.total == c.decided}
+        locked = [md for md in dated if md.id in fully_decided_ids]
+        pending = [md for md in dated if md.id not in fully_decided_ids]
         if not pending:
             continue
 
+        # Le pas se déduit UNIQUEMENT d'au moins deux journées verrouillées
+        # (jamais modifiées par cette fonction) — jamais de l'ensemble des
+        # dates, y compris celles des journées encore à recaler : le pas
+        # changeait alors d'un appel à l'autre au fur et à mesure que ces
+        # dates bougeaient, ce qui les faisait rebouger indéfiniment (cassant
+        # l'idempotence). Sans au moins deux points de repère fiables, 1 jour
+        # est la seule valeur qui ne dépende jamais de ce qu'on est en train
+        # de déplacer.
+        distinct_dates = sorted({md.scheduled_date for md in dated})
+        locked_dates = sorted({md.scheduled_date for md in locked})
+        step = (locked_dates[1] - locked_dates[0]).days if len(locked_dates) > 1 else 1
+        step = step or 1
+
         last_locked_date = max((md.scheduled_date for md in locked), default=None)
-        start = max(today, last_locked_date + timedelta(days=step)) if last_locked_date else max(
-            today, distinct_dates[0]
+        start = (
+            max(today, last_locked_date + timedelta(days=step))
+            if last_locked_date
+            else max(today, distinct_dates[0])
         )
 
         for index, md in enumerate(pending):
