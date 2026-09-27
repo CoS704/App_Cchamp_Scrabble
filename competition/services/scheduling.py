@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 
 from core.enums import ParticipationStatus, PhaseKind, ResultStatus
 
@@ -162,32 +163,58 @@ def generate_schedule(
     return Match.objects.bulk_create(matches_to_create)
 
 
-def redate_league_calendar(championship) -> int:
+def redate_league_calendar(championship, *, settings_obj=None, today=None) -> int:
     """Recale les dates des calendriers de ligue existants sur le nombre de
     matchs par jour du réglage (N journées par date), sans rien supprimer.
 
     Sert quand la limite quotidienne est définie/modifiée APRÈS la génération
     du calendrier : on ne peut pas régénérer (des résultats sont déjà
     validés), et les dates ne reflétaient pas le rythme réel des joueurs.
-    Point de départ = date de la première journée ; pas = écart entre les deux
-    premières dates distinctes (1 jour à défaut). Un match reprogrammé à la
-    main (date différente de celle de sa journée) n'est pas touché.
+
+    Une journée où au moins un match est déjà joué (terminé ou forfait) n'est
+    **jamais** déplacée : changer le rythme ne doit jamais faire passer un
+    match déjà disputé pour « en retard » a posteriori, ni réécrire son
+    historique. Seules les journées encore entièrement à jouer sont recalées,
+    à partir d'aujourd'hui (ou de la suite immédiate des journées déjà
+    disputées si elle est plus tardive) — jamais dans le passé, même si un
+    rythme plus soutenu comprimerait la fin de saison avant la date du jour.
+    Un match reprogrammé à la main (date différente de celle de sa journée)
+    n'est pas touché.
 
     Retourne le nombre de journées dont la date a changé.
     """
-    per_day = championship.settings.max_matches_per_day or 1
+    from core.enums import MatchStatus
+
+    per_day = (settings_obj or championship.settings).max_matches_per_day or 1
+    today = today or timezone.localdate()
     changed = 0
     phases = Phase.objects.filter(championship=championship, kind=PhaseKind.LEAGUE)
     for phase in phases:
         matchdays = list(Matchday.objects.filter(phase=phase).order_by("number"))
-        dated = [md.scheduled_date for md in matchdays if md.scheduled_date]
+        dated = [md for md in matchdays if md.scheduled_date]
         if not dated:
             continue
-        distinct = sorted(set(dated))
-        start = distinct[0]
-        step = (distinct[1] - distinct[0]).days if len(distinct) > 1 else 1
-        for md in matchdays:
-            new_date = start + timedelta(days=step * ((md.number - 1) // per_day))
+        distinct_dates = sorted({md.scheduled_date for md in dated})
+        step = (distinct_dates[1] - distinct_dates[0]).days if len(distinct_dates) > 1 else 1
+        step = step or 1
+
+        played_matchday_ids = set(
+            Match.objects.filter(
+                matchday__in=matchdays, status__in=[MatchStatus.COMPLETED, MatchStatus.FORFEIT]
+            ).values_list("matchday_id", flat=True)
+        )
+        locked = [md for md in dated if md.id in played_matchday_ids]
+        pending = [md for md in dated if md.id not in played_matchday_ids]
+        if not pending:
+            continue
+
+        last_locked_date = max((md.scheduled_date for md in locked), default=None)
+        start = max(today, last_locked_date + timedelta(days=step)) if last_locked_date else max(
+            today, distinct_dates[0]
+        )
+
+        for index, md in enumerate(pending):
+            new_date = start + timedelta(days=step * (index // per_day))
             if md.scheduled_date == new_date:
                 continue
             Match.objects.filter(matchday=md, scheduled_date=md.scheduled_date).update(

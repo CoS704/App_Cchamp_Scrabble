@@ -338,3 +338,95 @@ class CalendarDatesFollowTheDailyLimitTests(TestCase):
 
         manual.refresh_from_db()
         self.assertEqual(manual.scheduled_date, datetime.date(2026, 12, 25))
+
+
+    def test_redate_never_moves_already_played_matchdays(self):
+        """Régression : augmenter le rythme comprimait toute la saison depuis
+        la date de départ d'origine, ce qui pouvait faire passer des journées
+        déjà jouées pour « replanifiées », ou faire tomber les journées
+        restantes dans le passé (donc « en retard » alors qu'elles ne
+        l'étaient pas)."""
+        from competition.services.scheduling import generate_schedule, redate_league_calendar
+        from core.enums import MatchStatus, ResultStatus
+
+        championship, division = self._division_with_players(n_players=8, per_day=2)
+        start = datetime.date.today() - datetime.timedelta(days=6)
+        generate_schedule(championship=championship, division=division, start_date=start, interval_days=1)
+
+        # Journées 1 et 2 (jour 1) réellement jouées.
+        played = Match.objects.filter(division=division, matchday__number__in=[1, 2])
+        played.update(
+            status=MatchStatus.COMPLETED, result_status=ResultStatus.VALIDATED,
+            score1=400, score2=300, counts_for_standings=True,
+        )
+        played_dates_before = dict(
+            Match.objects.filter(division=division, matchday__number__in=[1, 2])
+            .values_list("matchday__number", "scheduled_date")
+        )
+
+        championship.settings.max_matches_per_day = 4  # rythme doublé
+        championship.settings.save()
+        redate_league_calendar(championship)
+
+        played_dates_after = dict(
+            Match.objects.filter(division=division, matchday__number__in=[1, 2])
+            .values_list("matchday__number", "scheduled_date")
+        )
+        self.assertEqual(played_dates_before, played_dates_after)
+
+        today = datetime.date.today()
+        remaining_dates = Match.objects.filter(
+            division=division, matchday__number__gte=3
+        ).values_list("scheduled_date", flat=True)
+        for d in remaining_dates:
+            self.assertGreaterEqual(d, today)
+
+
+class SettingsFormTriggersRedateTests(TestCase):
+    """Régression : après avoir changé « matchs max. par jour » via le
+    formulaire des paramètres, le calendrier n'était pas recalé — le recalage
+    automatique lisait championship.settings, une relation mise en cache
+    depuis le dispatch de la requête (donc encore sur l'ancienne valeur),
+    au lieu du réglage qui vient d'être enregistré."""
+
+    def test_saving_the_setting_via_the_web_form_redates_the_calendar(self):
+        import datetime
+
+        from competition.models import Matchday
+        from competition.services.scheduling import generate_schedule
+
+        championship = make_championship(name="Redate Form", season="rdf-1")
+        championship.settings.max_matches_per_day = 2
+        championship.settings.save()
+        division = make_division(championship)
+        for i in range(6):
+            register(championship, make_player(f"P{i}", "Rf"), division)
+        generate_schedule(
+            championship=championship, division=division,
+            start_date=datetime.date(2026, 9, 1), interval_days=1,
+        )
+        admin = make_user("redate_form_admin_t", group="Super Admin")
+        self.client.force_login(admin)
+        data = {
+            "points_win": "3", "points_draw": "1", "points_loss": "0",
+            "points_forfeit_win": "3", "points_forfeit_loss": "0",
+            "forfeit_score_for": "0", "forfeit_score_against": "0",
+            "primary_tiebreak": "SCORE_DIFF", "round_robin_legs": "1",
+            "result_entry_policy": "WINNER_ONLY", "result_confirmation_required": "on",
+            "double_entry_auto_confirm": "on", "late_match_threshold_days": "0",
+            "max_matches_per_day": "3", "upcoming_matches_shown": "3",
+            "finals_qualifiers_count": "4", "finals_format": "SEMI_1V4_2V3",
+            "finals_third_place": "on", "carry_over_between_editions": "on",
+        }
+
+        resp = self.client.post(f"/gestion/championnats/{championship.slug}/parametres/", data)
+
+        self.assertEqual(resp.status_code, 302)
+        dates = dict(
+            Matchday.objects.filter(phase__championship=championship)
+            .order_by("number").values_list("number", "scheduled_date")
+        )
+        self.assertEqual(dates[1], dates[2])
+        self.assertEqual(dates[2], dates[3])
+        self.assertNotEqual(dates[3], dates[4])
+

@@ -110,7 +110,12 @@ class ChampionshipSettingsUpdateView(
         if limit_changed:
             from competition.services.scheduling import redate_league_calendar
 
-            moved = redate_league_calendar(self.championship)
+            # form.instance porte la valeur fraîchement enregistrée ; self.
+            # championship.settings est une relation mise en cache DEPUIS le
+            # dispatch (select_related), donc encore sur l'ancienne valeur —
+            # la lui passer explicitement évite de recalculer sur un réglage
+            # périmé (c'était le bug : le recalage automatique ne faisait rien).
+            moved = redate_league_calendar(self.championship, settings_obj=form.instance)
             if moved:
                 messages.info(
                     self.request,
