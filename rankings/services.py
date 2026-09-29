@@ -263,35 +263,12 @@ def all_divisions_standings(championship):
     return result
 
 
-def championship_distinctions(championship, *, top_n=5) -> dict:
-    """Distinctions de fin de championnat : meilleure attaque/défense (moyenne
-    par match, toutes divisions confondues) et faits marquants d'un match
-    (plus gros score individuel, plus large écart, match le plus serré).
-
-    Ne porte que sur les matchs ``VALIDATED`` de type ``NORMAL`` : un forfait
-    (souvent 0 partout ou un score conventionnel) fausserait ces statistiques,
-    qui célèbrent des performances réellement jouées.
-    """
-    from competition.models import Match
-    from participations.models import ChampionshipParticipation
-
-    participations = list(
-        ChampionshipParticipation.objects.filter(championship=championship)
-        .exclude(status__in=["WITHDRAWN", "DISQUALIFIED"])
-        .select_related("player", "division")
-    )
-    participation_by_id = {p.id: p for p in participations}
-
-    matches = list(
-        Match.objects.filter(
-            championship=championship,
-            result_status=ResultStatus.VALIDATED,
-            counts_for_standings=True,
-            outcome_type=OutcomeType.NORMAL,
-        ).select_related("player1__player", "player1__division", "player2__player", "player2__division")
-    )
-
-    stats, _h2h = _aggregate(set(participation_by_id), matches, championship.settings)
+def _compute_distinctions(participation_by_id, matches, settings_obj, top_n):
+    """Calcule les 5 catégories de distinctions pour un ensemble de
+    participations/matchs donné — factorisé pour être appliqué aussi bien à
+    l'ensemble d'un championnat qu'à une seule division (§ demande utilisateur :
+    « mettre les distinctions par division aussi »)."""
+    stats, _h2h = _aggregate(set(participation_by_id), matches, settings_obj)
 
     def top_by_average(score_key, against_key, *, reverse):
         rows = []
@@ -360,6 +337,62 @@ def championship_distinctions(championship, *, top_n=5) -> dict:
         "biggest_margins": biggest_margins,
         "closest_matches": closest_matches,
     }
+
+
+def championship_distinctions(championship, *, top_n=5) -> dict:
+    """Distinctions de fin de championnat : meilleure attaque/défense (moyenne
+    par match) et faits marquants d'un match (plus gros score individuel,
+    plus large écart, match le plus serré) — pour l'ensemble du championnat
+    et, séparément, pour chaque division.
+
+    Ne porte que sur les matchs ``VALIDATED`` de type ``NORMAL`` avec un score
+    strictement positif des deux côtés : un forfait (souvent 0 partout, ou le
+    score conventionnel des réglages) fausserait ces statistiques, qui
+    célèbrent des performances réellement jouées. Un score à 0 reste exclu
+    même s'il n'a pas été explicitement déclaré comme forfait (voir
+    ``competition.management.commands.fix_forfeit_outcome_types`` pour
+    retagger correctement ces matchs).
+    """
+    from django.db.models import Q
+
+    from competition.models import Match
+    from participations.models import ChampionshipParticipation
+
+    settings_obj = championship.settings
+    participations = list(
+        ChampionshipParticipation.objects.filter(championship=championship)
+        .exclude(status__in=["WITHDRAWN", "DISQUALIFIED"])
+        .select_related("player", "division")
+    )
+    participation_by_id = {p.id: p for p in participations}
+
+    matches = list(
+        Match.objects.filter(
+            championship=championship,
+            result_status=ResultStatus.VALIDATED,
+            counts_for_standings=True,
+            outcome_type=OutcomeType.NORMAL,
+        )
+        .exclude(Q(score1=0) | Q(score2=0))
+        .select_related("player1__player", "player1__division", "player2__player", "player2__division")
+    )
+
+    result = _compute_distinctions(participation_by_id, matches, settings_obj, top_n)
+
+    by_division = []
+    for division in championship.divisions.all():
+        division_participation_by_id = {
+            pid: p for pid, p in participation_by_id.items() if p.division_id == division.id
+        }
+        division_matches = [m for m in matches if m.division_id == division.id]
+        by_division.append(
+            {
+                "division": division,
+                **_compute_distinctions(division_participation_by_id, division_matches, settings_obj, top_n),
+            }
+        )
+    result["by_division"] = by_division
+    return result
 
 
 def _previous_ranks(division, phase):

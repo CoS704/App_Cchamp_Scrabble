@@ -243,6 +243,37 @@ class ChampionshipDistinctionsTests(TestCase):
         self.assertEqual(distinctions["best_attack"][0]["average"], 575.0)
         self.assertNotIn(forfeit, [row["match"] for row in distinctions["biggest_margins"]])
 
+    def test_matches_with_a_zero_score_are_excluded_even_without_forfeit_tag(self):
+        # Un forfait mal saisi (outcome_type resté NORMAL) a souvent un score
+        # à 0 d'un côté : on l'exclut quand même, par sécurité, même sans le
+        # tag forfait (§ demande utilisateur : "ne pas considérer les scores
+        # où l'un des score est nul").
+        zero_score_match = Match.objects.create(
+            championship=self.championship, division=self.division_a, phase=self.phase_a,
+            player1=self.weak, player2=self.attacker, leg=2, score1=0, score2=250,
+            winner=self.attacker, result_status=ResultStatus.VALIDATED, status="COMPLETED",
+            counts_for_standings=True,
+            pair_key=Match.compute_pair_key(self.weak.id, self.attacker.id),
+        )
+        distinctions = championship_distinctions(self.championship)
+        self.assertEqual(distinctions["best_attack"][0]["average"], 575.0)
+        self.assertNotIn(zero_score_match, [row["match"] for row in distinctions["biggest_margins"]])
+        self.assertNotIn(zero_score_match, [row["match"] for row in distinctions["closest_matches"]])
+        self.assertNotIn(250, [row["score"] for row in distinctions["best_individual_scores"] if row["participation"] == self.attacker and row["opponent"] == self.weak])
+
+    def test_by_division_breakdown_is_scoped_to_each_division(self):
+        distinctions = championship_distinctions(self.championship)
+        by_division = {entry["division"].id: entry for entry in distinctions["by_division"]}
+        self.assertEqual(set(by_division), {self.division_a.id, self.division_b.id})
+
+        division_a_entry = by_division[self.division_a.id]
+        self.assertEqual(division_a_entry["best_attack"][0]["participation"], self.attacker)
+        self.assertEqual({r["participation"] for r in division_a_entry["best_attack"]}, {self.attacker, self.weak, self.weak2})
+
+        division_b_entry = by_division[self.division_b.id]
+        self.assertEqual(division_b_entry["best_attack"][0]["participation"], self.defender)
+        self.assertEqual({r["participation"] for r in division_b_entry["best_attack"]}, {self.defender, self.other})
+
     def test_public_distinctions_view_accessible_without_login(self):
         self.championship.status = ChampionshipStatus.IN_PROGRESS
         self.championship.save(update_fields=["status"])
