@@ -3,9 +3,9 @@ from django.test import TestCase
 
 from championships.models import PromotionRelegationRule
 from competition.models import Match, Phase, TieResolution
-from core.enums import ChampionshipStatus, MovementType, PhaseKind, PromotionMethod, ResultStatus
+from core.enums import ChampionshipStatus, MovementType, OutcomeType, PhaseKind, PromotionMethod, ResultStatus
 from core.factories import make_championship, make_division, make_player, register
-from rankings.services import compute_standings
+from rankings.services import championship_distinctions, compute_standings
 
 
 def _validated_match(championship, division, phase, p1, p2, s1, s2):
@@ -176,3 +176,77 @@ class PublicStandingsViewTests(TestCase):
         resp = self.client.get(f"/gestion/championnats/{self.championship.slug}/classement/")
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "A Pub")
+
+
+class ChampionshipDistinctionsTests(TestCase):
+    """Distinctions de fin de championnat (§ demande utilisateur : meilleure
+    attaque/défense, plus large score) — toutes divisions confondues."""
+
+    def setUp(self):
+        self.championship = make_championship(name="Distinctions Championship", season="dist-1")
+        self.division_a = make_division(self.championship, name="A", carryover_key="a")
+        self.division_b = make_division(self.championship, name="B", level=2, carryover_key="b")
+        self.phase_a = Phase.objects.create(
+            championship=self.championship, division=self.division_a, kind=PhaseKind.LEAGUE, order=1, name="Ligue A"
+        )
+        self.phase_b = Phase.objects.create(
+            championship=self.championship, division=self.division_b, kind=PhaseKind.LEAGUE, order=1, name="Ligue B"
+        )
+        self.attacker = register(self.championship, make_player("Attacker", "D"), self.division_a)
+        self.weak = register(self.championship, make_player("Weak", "D"), self.division_a)
+        self.weak2 = register(self.championship, make_player("Weak2", "D"), self.division_a)
+        self.defender = register(self.championship, make_player("Defender", "D"), self.division_b)
+        self.other = register(self.championship, make_player("Other", "D"), self.division_b)
+
+        # Attacker marque énormément (attaque), Defender concède très peu (défense).
+        _validated_match(self.championship, self.division_a, self.phase_a, self.attacker, self.weak, 600, 100)
+        _validated_match(self.championship, self.division_a, self.phase_a, self.attacker, self.weak2, 550, 150)
+        _validated_match(self.championship, self.division_b, self.phase_b, self.defender, self.other, 400, 50)
+
+    def test_best_attack_ranks_by_average_not_total(self):
+        distinctions = championship_distinctions(self.championship)
+        self.assertEqual(distinctions["best_attack"][0]["participation"], self.attacker)
+        self.assertEqual(distinctions["best_attack"][0]["average"], 575.0)
+
+    def test_best_defense_lowest_average_conceded(self):
+        distinctions = championship_distinctions(self.championship)
+        self.assertEqual(distinctions["best_defense"][0]["participation"], self.defender)
+        self.assertEqual(distinctions["best_defense"][0]["average"], 50.0)
+
+    def test_biggest_margin_and_best_individual_score(self):
+        distinctions = championship_distinctions(self.championship)
+        self.assertEqual(distinctions["biggest_margins"][0]["margin"], 500)
+        self.assertEqual(distinctions["best_individual_scores"][0]["score"], 600)
+        self.assertEqual(distinctions["best_individual_scores"][0]["participation"], self.attacker)
+
+    def test_closest_match(self):
+        Match.objects.create(
+            championship=self.championship, division=self.division_b, phase=self.phase_b,
+            player1=self.defender, player2=self.other, leg=2, score1=300, score2=295,
+            winner=self.defender, result_status=ResultStatus.VALIDATED, status="COMPLETED",
+            counts_for_standings=True,
+            pair_key=Match.compute_pair_key(self.defender.id, self.other.id),
+        )
+        distinctions = championship_distinctions(self.championship)
+        self.assertEqual(distinctions["closest_matches"][0]["margin"], 5)
+
+    def test_forfeits_are_excluded(self):
+        forfeit = Match.objects.create(
+            championship=self.championship, division=self.division_a, phase=self.phase_a,
+            player1=self.weak, player2=self.attacker, leg=2, score1=0, score2=0,
+            winner=self.attacker, outcome_type=OutcomeType.FORFEIT_P1,
+            result_status=ResultStatus.VALIDATED, status="FORFEIT", counts_for_standings=True,
+            pair_key=Match.compute_pair_key(self.weak.id, self.attacker.id),
+        )
+        distinctions = championship_distinctions(self.championship)
+        # Le forfait (0-0) ne doit pas faire chuter la moyenne d'attaque de l'attaquant.
+        self.assertEqual(distinctions["best_attack"][0]["average"], 575.0)
+        self.assertNotIn(forfeit, [row["match"] for row in distinctions["biggest_margins"]])
+
+    def test_public_distinctions_view_accessible_without_login(self):
+        self.championship.status = ChampionshipStatus.IN_PROGRESS
+        self.championship.save(update_fields=["status"])
+        resp = self.client.get(f"/classements/{self.championship.slug}/distinctions/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Attacker")
+        self.assertContains(resp, "Defender")

@@ -12,6 +12,16 @@
     Saison {{ championship.season }} — Départage :
     {{ championship.settings.get_primary_tiebreak_display }}
   </p>
+  <div class="mt-2">
+    <a href="{% url 'public_rankings:distinctions' championship.slug %}" class="btn btn-sm btn-light me-2">
+      <i class="bi bi-award-fill me-1"></i>Distinctions
+    </a>
+    {% if has_brackets %}
+    <a href="{% url 'public_finals:list' championship.slug %}" class="btn btn-sm btn-light">
+      <i class="bi bi-diagram-3-fill me-1"></i>Phases finales
+    </a>
+    {% endif %}
+  </div>
 </div>
 
 {% for entry in divisions_standings %}

@@ -6,7 +6,7 @@ from championships.models import Championship
 from core.enums import ChampionshipStatus
 from core.permissions import ChampionshipAdminRequiredMixin
 
-from .services import all_divisions_standings
+from .services import all_divisions_standings, championship_distinctions
 
 
 class StandingsView(ChampionshipScopedMixin, ChampionshipAdminRequiredMixin, TemplateView):
@@ -49,4 +49,22 @@ class PublicStandingsView(TemplateView):
         )
         context["championship"] = championship
         context["divisions_standings"] = all_divisions_standings(championship)
+        context["has_brackets"] = championship.brackets.exists()
+        return context
+
+
+class PublicDistinctionsView(TemplateView):
+    """Distinctions de fin de championnat (meilleure attaque, meilleure
+    défense, plus large score...) — accessible sans connexion (§32)."""
+
+    template_name = "rankings/public_distinctions.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        championship = get_object_or_404(
+            Championship.objects.exclude(status=ChampionshipStatus.DRAFT).select_related("settings"),
+            slug=self.kwargs["slug"],
+        )
+        context["championship"] = championship
+        context["distinctions"] = championship_distinctions(championship)
         return context

@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+
+{% block title %}Distinctions — {{ championship.name }}{% endblock %}
+
+{% block content %}
+<div class="hero-band p-4 p-md-5 mb-4">
+  <a href="{% url 'public_rankings:detail' championship.slug %}" class="text-white-50 small">
+    <i class="bi bi-arrow-left me-1"></i>Classement
+  </a>
+  <h1 class="h3 mt-2 mb-1"><i class="bi bi-award-fill me-2"></i>Distinctions</h1>
+  <p class="mb-0 opacity-75">{{ championship.name }} — toutes divisions confondues, matchs joués uniquement (hors forfaits)</p>
+</div>
+
+<div class="row g-3">
+  <div class="col-12 col-lg-6">
+    <div class="chart-card card h-100">
+      <div class="card-header"><i class="bi bi-lightning-fill text-warning me-1"></i>Meilleure attaque</div>
+      <div class="card-body">
+        {% if distinctions.best_attack %}
+        <table class="table table-sm mb-0">
+          <thead><tr><th>Joueur</th><th>Division</th><th>Moy./match</th><th>MJ</th></tr></thead>
+          <tbody>
+            {% for row in distinctions.best_attack %}
+            <tr>
+              <td class="fw-medium">{{ row.participation.player }}</td>
+              <td class="text-muted">{{ row.participation.division.name }}</td>
+              <td class="fw-bold">{{ row.average }}</td>
+              <td>{{ row.played }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+          <p class="text-muted mb-0">Pas encore de match joué.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-6">
+    <div class="chart-card card h-100">
+      <div class="card-header"><i class="bi bi-shield-fill text-primary me-1"></i>Meilleure défense</div>
+      <div class="card-body">
+        {% if distinctions.best_defense %}
+        <table class="table table-sm mb-0">
+          <thead><tr><th>Joueur</th><th>Division</th><th>Moy. concédée</th><th>MJ</th></tr></thead>
+          <tbody>
+            {% for row in distinctions.best_defense %}
+            <tr>
+              <td class="fw-medium">{{ row.participation.player }}</td>
+              <td class="text-muted">{{ row.participation.division.name }}</td>
+              <td class="fw-bold">{{ row.average }}</td>
+              <td>{{ row.played }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+          <p class="text-muted mb-0">Pas encore de match joué.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-4">
+    <div class="chart-card card h-100">
+      <div class="card-header"><i class="bi bi-graph-up-arrow text-success me-1"></i>Meilleur score individuel</div>
+      <div class="card-body">
+        {% if distinctions.best_individual_scores %}
+        <ul class="list-unstyled mb-0">
+          {% for row in distinctions.best_individual_scores %}
+          <li class="d-flex justify-content-between py-1 {% if not forloop.last %}border-bottom{% endif %}">
+            <span>{{ row.participation.player }} <span class="text-muted small">vs {{ row.opponent.player }}</span></span>
+            <span class="fw-bold">{{ row.score }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+          <p class="text-muted mb-0">Pas encore de match joué.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-4">
+    <div class="chart-card card h-100">
+      <div class="card-header"><i class="bi bi-arrows-angle-expand text-danger me-1"></i>Plus large écart</div>
+      <div class="card-body">
+        {% if distinctions.biggest_margins %}
+        <ul class="list-unstyled mb-0">
+          {% for row in distinctions.biggest_margins %}
+          <li class="py-1 {% if not forloop.last %}border-bottom{% endif %}">
+            <div class="d-flex justify-content-between">
+              <span>{{ row.match.player1.player }} <span class="text-muted mx-1">vs</span> {{ row.match.player2.player }}</span>
+              <span class="fw-bold">{{ row.margin }}</span>
+            </div>
+            <div class="text-muted small">{{ row.match.score1 }} - {{ row.match.score2 }}</div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+          <p class="text-muted mb-0">Pas encore de match joué.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-4">
+    <div class="chart-card card h-100">
+      <div class="card-header"><i class="bi bi-arrows-angle-contract text-info me-1"></i>Match le plus serré</div>
+      <div class="card-body">
+        {% if distinctions.closest_matches %}
+        <ul class="list-unstyled mb-0">
+          {% for row in distinctions.closest_matches %}
+          <li class="py-1 {% if not forloop.last %}border-bottom{% endif %}">
+            <div class="d-flex justify-content-between">
+              <span>{{ row.match.player1.player }} <span class="text-muted mx-1">vs</span> {{ row.match.player2.player }}</span>
+              <span class="fw-bold">{{ row.margin }}</span>
+            </div>
+            <div class="text-muted small">{{ row.match.score1 }} - {{ row.match.score2 }}</div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+          <p class="text-muted mb-0">Pas encore de match joué.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

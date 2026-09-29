@@ -2,15 +2,16 @@ from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.shortcuts import get_object_or_404, redirect
 from django.views import View
-from django.views.generic import DetailView, ListView
+from django.views.generic import DetailView, ListView, TemplateView
 
 from audit.services import log_action
 from championships.mixins import ChampionshipScopedMixin
-from core.enums import AuditAction
+from championships.models import Championship
+from core.enums import AuditAction, ChampionshipStatus
 from core.permissions import ChampionshipAdminRequiredMixin
 
 from .models import Bracket
-from .services import _rounds_count, generate_bracket
+from .services import bracket_rounds_context, generate_bracket
 
 
 class BracketListView(ChampionshipScopedMixin, ChampionshipAdminRequiredMixin, ListView):
@@ -55,31 +56,42 @@ class BracketDetailView(ChampionshipScopedMixin, ChampionshipAdminRequiredMixin,
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        bracket = self.object
-        total_rounds = _rounds_count(bracket.size)
-        slots = list(
-            bracket.slots.select_related(
-                "participation__player",
-                "match__player1__player",
-                "match__player2__player",
-            ).order_by("round_index", "position")
-        )
+        context.update(bracket_rounds_context(self.object))
+        return context
 
-        groups = []
-        for r in range(total_rounds):
-            round_slots = [s for s in slots if s.round_index == r and not s.is_third_place]
-            games = [(round_slots[i], round_slots[i + 1]) for i in range(0, len(round_slots), 2)]
-            if r == total_rounds - 1:
-                label = "Finale"
-            elif r == total_rounds - 2:
-                label = "Demi-finales"
-            else:
-                label = f"Tour {r + 1}"
-            groups.append({"label": label, "games": games})
 
-        third_place_slots = [s for s in slots if s.is_third_place]
-        context["rounds"] = groups
-        context["third_place_game"] = (
-            (third_place_slots[0], third_place_slots[1]) if len(third_place_slots) == 2 else None
+class PublicBracketListView(TemplateView):
+    """Liste publique des tableaux finaux d'un championnat — accessible sans
+    connexion (§32), même pattern que ``rankings.PublicStandingsView``."""
+
+    template_name = "finals/public_list.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        championship = get_object_or_404(
+            Championship.objects.exclude(status=ChampionshipStatus.DRAFT),
+            slug=self.kwargs["slug"],
         )
+        context["championship"] = championship
+        context["brackets"] = Bracket.objects.filter(championship=championship).select_related("division")
+        return context
+
+
+class PublicBracketDetailView(DetailView):
+    """Tableau final public d'une division — lecture seule, sans action
+    d'administration (pas de bouton « Résultat »)."""
+
+    model = Bracket
+    template_name = "finals/public_detail.html"
+    context_object_name = "bracket"
+
+    def get_queryset(self):
+        return Bracket.objects.filter(
+            championship__slug=self.kwargs["slug"]
+        ).exclude(championship__status=ChampionshipStatus.DRAFT).select_related("championship", "division")
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["championship"] = self.object.championship
+        context.update(bracket_rounds_context(self.object))
         return context

@@ -206,6 +206,39 @@ def advance_bracket(match) -> None:
         _try_create_match(next_slot, total_rounds)
 
 
+def bracket_rounds_context(bracket) -> dict:
+    """Regroupe les emplacements d'un tableau par tour, pour l'affichage —
+    partagé entre la vue admin et la vue publique (§56, pas de duplication)."""
+    total_rounds = _rounds_count(bracket.size)
+    slots = list(
+        bracket.slots.select_related(
+            "participation__player",
+            "match__player1__player",
+            "match__player2__player",
+        ).order_by("round_index", "position")
+    )
+
+    groups = []
+    for r in range(total_rounds):
+        round_slots = [s for s in slots if s.round_index == r and not s.is_third_place]
+        games = [(round_slots[i], round_slots[i + 1]) for i in range(0, len(round_slots), 2)]
+        if r == total_rounds - 1:
+            label = "Finale"
+        elif r == total_rounds - 2:
+            label = "Demi-finales"
+        else:
+            label = f"Tour {r + 1}"
+        groups.append({"label": label, "games": games})
+
+    third_place_slots = [s for s in slots if s.is_third_place]
+    return {
+        "rounds": groups,
+        "third_place_game": (
+            (third_place_slots[0], third_place_slots[1]) if len(third_place_slots) == 2 else None
+        ),
+    }
+
+
 def _try_create_match(slot, total_rounds):
     if slot.match_id or slot.participation_id is None:
         return

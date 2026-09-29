@@ -4,7 +4,7 @@ from django.test import TestCase
 
 from competition.models import Match, Phase
 from competition.services.result import submit_result
-from core.enums import PhaseKind
+from core.enums import ChampionshipStatus, PhaseKind
 from core.factories import make_championship, make_division, make_player, make_user, register
 from finals.models import BracketSlot
 from finals.services import _standard_seed_order, generate_bracket
@@ -81,3 +81,61 @@ class BracketGenerationTests(TestCase):
         generate_bracket(championship=self.championship, division=self.division)
         with self.assertRaises(ValidationError):
             generate_bracket(championship=self.championship, division=self.division)
+
+
+class PublicBracketViewTests(TestCase):
+    """Vue publique du tableau final — accessible sans connexion (§32), même
+    pattern que ``rankings.PublicStandingsView``, mais sans action d'admin."""
+
+    def setUp(self):
+        self.championship = make_championship(
+            name="Public Bracket Championship", season="pbrk-1", status=ChampionshipStatus.IN_PROGRESS
+        )
+        self.championship.settings.finals_enabled = True
+        self.championship.settings.save()
+        self.division = make_division(self.championship)
+        self.admin = make_user("fpub_admin_t", group="Super Admin")
+        self.players = [
+            register(self.championship, make_player(n, "F"), self.division)
+            for n in ["Un", "Deux", "Trois", "Quatre"]
+        ]
+        self.phase = Phase.objects.create(
+            championship=self.championship, division=self.division, kind=PhaseKind.LEAGUE, order=1, name="Ligue"
+        )
+
+        def play(a, b, s1, s2):
+            m = Match.objects.create(
+                championship=self.championship, division=self.division, phase=self.phase, player1=a, player2=b,
+                pair_key=Match.compute_pair_key(a.id, b.id),
+            )
+            submit_result(match=m, user=self.admin, score1=s1, score2=s2)
+
+        p1, p2, p3, p4 = self.players
+        play(p1, p2, 500, 300)
+        play(p1, p3, 500, 250)
+        play(p1, p4, 500, 200)
+        play(p2, p3, 450, 300)
+        play(p2, p4, 450, 280)
+        play(p3, p4, 400, 350)
+        self.bracket = generate_bracket(championship=self.championship, division=self.division)
+
+    def test_list_accessible_without_login(self):
+        resp = self.client.get(f"/classements/{self.championship.slug}/phases-finales/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, self.division.name)
+
+    def test_detail_accessible_without_login_and_shows_bracket(self):
+        resp = self.client.get(f"/classements/{self.championship.slug}/phases-finales/{self.bracket.pk}/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Un F")
+        self.assertContains(resp, "Quatre F")
+
+    def test_detail_has_no_admin_result_action(self):
+        resp = self.client.get(f"/classements/{self.championship.slug}/phases-finales/{self.bracket.pk}/")
+        self.assertNotContains(resp, "Résultat")
+
+    def test_draft_championship_bracket_not_public(self):
+        self.championship.status = ChampionshipStatus.DRAFT
+        self.championship.save(update_fields=["status"])
+        resp = self.client.get(f"/classements/{self.championship.slug}/phases-finales/{self.bracket.pk}/")
+        self.assertEqual(resp.status_code, 404)

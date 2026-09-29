@@ -13,7 +13,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from django.db import transaction
 
-from core.enums import MovementType, MovementZone, PhaseKind, ResultStatus, TiebreakCriterion
+from core.enums import MovementType, MovementZone, OutcomeType, PhaseKind, ResultStatus, TiebreakCriterion
 
 from .models import StandingRow, StandingSnapshot
 
@@ -261,6 +261,105 @@ def all_divisions_standings(championship):
                 rows = snapshot.rows.select_related("participation__player").order_by("rank")
         result.append({"division": division, "snapshot": snapshot, "rows": rows})
     return result
+
+
+def championship_distinctions(championship, *, top_n=5) -> dict:
+    """Distinctions de fin de championnat : meilleure attaque/défense (moyenne
+    par match, toutes divisions confondues) et faits marquants d'un match
+    (plus gros score individuel, plus large écart, match le plus serré).
+
+    Ne porte que sur les matchs ``VALIDATED`` de type ``NORMAL`` : un forfait
+    (souvent 0 partout ou un score conventionnel) fausserait ces statistiques,
+    qui célèbrent des performances réellement jouées.
+    """
+    from competition.models import Match
+    from participations.models import ChampionshipParticipation
+
+    participations = list(
+        ChampionshipParticipation.objects.filter(championship=championship)
+        .exclude(status__in=["WITHDRAWN", "DISQUALIFIED"])
+        .select_related("player", "division")
+    )
+    participation_by_id = {p.id: p for p in participations}
+
+    matches = list(
+        Match.objects.filter(
+            championship=championship,
+            result_status=ResultStatus.VALIDATED,
+            counts_for_standings=True,
+            outcome_type=OutcomeType.NORMAL,
+        ).select_related("player1__player", "player1__division", "player2__player", "player2__division")
+    )
+
+    stats, _h2h = _aggregate(set(participation_by_id), matches, championship.settings)
+
+    def top_by_average(score_key, against_key, *, reverse):
+        rows = []
+        for pid, s in stats.items():
+            participation = participation_by_id.get(pid)
+            if not participation or not s["played"]:
+                continue
+            rows.append(
+                {
+                    "participation": participation,
+                    "played": s["played"],
+                    "total": s[score_key],
+                    "average": round(s[score_key] / s["played"], 1),
+                    "average_against": round(s[against_key] / s["played"], 1),
+                }
+            )
+        rows.sort(key=lambda r: r["average"], reverse=reverse)
+        return rows[:top_n]
+
+    best_attack = top_by_average("score_for", "score_against", reverse=True)
+    best_defense = top_by_average("score_against", "score_for", reverse=False)
+
+    two_player_matches = [m for m in matches if m.player2_id is not None]
+
+    best_individual_scores = sorted(
+        [
+            {"match": m, "participation": m.player1, "opponent": m.player2, "score": m.score1}
+            for m in two_player_matches
+        ]
+        + [
+            {"match": m, "participation": m.player2, "opponent": m.player1, "score": m.score2}
+            for m in two_player_matches
+        ],
+        key=lambda r: r["score"],
+        reverse=True,
+    )[:top_n]
+
+    def with_margin_and_winner(m):
+        if m.winner_id == m.player1_id:
+            winner, loser = m.player1, m.player2
+        elif m.winner_id == m.player2_id:
+            winner, loser = m.player2, m.player1
+        else:
+            winner, loser = None, None
+        return {
+            "match": m,
+            "winner": winner,
+            "loser": loser,
+            "margin": abs(m.score1 - m.score2),
+        }
+
+    biggest_margins = sorted(
+        (with_margin_and_winner(m) for m in two_player_matches),
+        key=lambda r: r["margin"],
+        reverse=True,
+    )[:top_n]
+    closest_matches = sorted(
+        (with_margin_and_winner(m) for m in two_player_matches),
+        key=lambda r: r["margin"],
+    )[:top_n]
+
+    return {
+        "best_attack": best_attack,
+        "best_defense": best_defense,
+        "best_individual_scores": best_individual_scores,
+        "biggest_margins": biggest_margins,
+        "closest_matches": closest_matches,
+    }
 
 
 def _previous_ranks(division, phase):

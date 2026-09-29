@@ -14,6 +14,7 @@ urlpatterns = [
     path("mon-espace/simulation/", include("dashboard.player_urls")),
     path("notifications/", include("notifications.urls")),
     path("classements/", include("rankings.public_urls")),
+    path("classements/<slug:slug>/phases-finales/", include("finals.public_urls")),
     path(
         "gestion/championnats/<slug:slug>/dashboard/",
         include("dashboard.urls"),
