@@ -1,5 +1,8 @@
 """Tests calendrier (round-robin) et résultats (double saisie, litiges) — §60."""
+from io import StringIO
+
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.management import call_command
 from django.test import TestCase
 
 from competition.models import Match, Phase
@@ -10,7 +13,7 @@ from competition.services.scheduling import (
     generate_round_robin_rounds,
     generate_schedule,
 )
-from core.enums import PhaseKind, ResultEntryPolicy, ResultStatus
+from core.enums import OutcomeType, PhaseKind, ResultEntryPolicy, ResultStatus
 from core.factories import make_championship, make_division, make_player, make_user, register
 
 
@@ -216,3 +219,71 @@ class CalendarResultStatusFilterTests(TestCase):
         matches = list(resp.context["matches"])
         self.assertIn(self.disputed_match, matches)
         self.assertNotIn(self.pending_match, matches)
+
+
+class FixForfeitOutcomeTypesCommandTests(TestCase):
+    """Un forfait saisi à la main (score technique tapé au lieu d'utiliser
+    « Déclarer un forfait ») reste taggé ``outcome_type=NORMAL`` et fausse
+    les statistiques qui excluent les forfaits — la commande corrige ça sans
+    toucher au score ni au vainqueur déjà enregistrés."""
+
+    def setUp(self):
+        self.championship = make_championship(name="Forfeit Fix Championship", season="ffix-1")
+        self.championship.settings.forfeit_score_for = 300
+        self.championship.settings.forfeit_score_against = 0
+        self.championship.settings.save()
+        self.division = make_division(self.championship)
+        self.phase = Phase.objects.create(
+            championship=self.championship, division=self.division, kind=PhaseKind.LEAGUE, order=1, name="Ligue"
+        )
+        self.px = register(self.championship, make_player("X", "Ff"), self.division)
+        self.py = register(self.championship, make_player("Y", "Ff"), self.division)
+        self.pz = register(self.championship, make_player("Z", "Ff"), self.division)
+
+        def validated(a, b, s1, s2, *, leg=1):
+            return Match.objects.create(
+                championship=self.championship, division=self.division, phase=self.phase,
+                player1=a, player2=b, leg=leg, score1=s1, score2=s2,
+                winner=(a if s1 > s2 else (b if s2 > s1 else None)),
+                result_status=ResultStatus.VALIDATED, status="COMPLETED", counts_for_standings=True,
+                pair_key=Match.compute_pair_key(a.id, b.id),
+            )
+
+        self.hand_typed_forfeit = validated(self.px, self.py, 300, 0)
+        self.hand_typed_forfeit_reverse_side = validated(self.py, self.pz, 0, 300, leg=2)
+        self.double_forfeit = validated(self.pz, self.px, 0, 0, leg=2)
+        self.real_close_game = validated(self.px, self.pz, 301, 299, leg=3)
+
+    def test_dry_run_reports_but_does_not_modify(self):
+        out = StringIO()
+        call_command("fix_forfeit_outcome_types", stdout=out)
+        self.hand_typed_forfeit.refresh_from_db()
+        self.assertEqual(self.hand_typed_forfeit.outcome_type, OutcomeType.NORMAL)
+        self.assertIn(str(self.hand_typed_forfeit.id), out.getvalue())
+
+    def test_apply_corrects_outcome_type_and_status_only(self):
+        call_command("fix_forfeit_outcome_types", "--apply", stdout=StringIO())
+
+        self.hand_typed_forfeit.refresh_from_db()
+        self.assertEqual(self.hand_typed_forfeit.outcome_type, OutcomeType.FORFEIT_P2)
+        self.assertEqual(self.hand_typed_forfeit.status, "FORFEIT")
+        self.assertEqual(self.hand_typed_forfeit.score1, 300)  # score inchangé
+        self.assertEqual(self.hand_typed_forfeit.winner_id, self.px.id)  # vainqueur inchangé
+
+        self.hand_typed_forfeit_reverse_side.refresh_from_db()
+        self.assertEqual(self.hand_typed_forfeit_reverse_side.outcome_type, OutcomeType.FORFEIT_P1)
+
+        self.double_forfeit.refresh_from_db()
+        self.assertEqual(self.double_forfeit.outcome_type, OutcomeType.DOUBLE_FORFEIT)
+        self.assertIsNone(self.double_forfeit.winner_id)
+
+    def test_real_lopsided_score_is_never_mistaken_for_a_forfeit(self):
+        call_command("fix_forfeit_outcome_types", "--apply", stdout=StringIO())
+        self.real_close_game.refresh_from_db()
+        self.assertEqual(self.real_close_game.outcome_type, OutcomeType.NORMAL)
+
+    def test_command_is_idempotent(self):
+        call_command("fix_forfeit_outcome_types", "--apply", stdout=StringIO())
+        out = StringIO()
+        call_command("fix_forfeit_outcome_types", "--apply", stdout=out)
+        self.assertIn("Aucun match à corriger", out.getvalue())
