@@ -150,6 +150,8 @@ def _criterion_key(criterion, stats, h2h, cluster, participations_by_id, setting
         return lambda pid: participations_by_id[pid].seed or 10**6
     if criterion == TiebreakCriterion.FORM:
         return lambda pid: -sum(1 for r in stats[pid]["form"][-5:] if r == "V")
+    if criterion == TiebreakCriterion.ALPHABETICAL:
+        return lambda pid: str(participations_by_id[pid].player).casefold()
     if criterion == TiebreakCriterion.DRAW_LOTS:
         # Tirage déterministe et stable d'un recalcul à l'autre (pas un vrai
         # tirage au sort physique — à raffiner si besoin d'un tirage tracé).
@@ -157,16 +159,33 @@ def _criterion_key(criterion, stats, h2h, cluster, participations_by_id, setting
     raise ValueError(f"Critère de départage non géré : {criterion}")
 
 
+def _apply_overrides(clusters, tie_overrides):
+    """Résout immédiatement tout cluster dont l'ensemble exact correspond à une
+    ``TieResolution`` explicite — une décision humaine délibérée l'emporte
+    toujours sur n'importe quel critère automatique, y compris ceux qui
+    viendraient après elle dans la chaîne configurée (ex. ALPHABETICAL)."""
+    result = []
+    for cluster in clusters:
+        override = tie_overrides.get(frozenset(cluster)) if len(cluster) > 1 else None
+        if override:
+            result.extend([pid] for pid in override if pid in cluster)
+        else:
+            result.append(cluster)
+    return result
+
+
 def _rank_participations(participations, stats, h2h, tiebreak_chain, tie_overrides, settings_obj, championship_id):
     participations_by_id = {p.id: p for p in participations}
     ids = list(participations_by_id.keys())
 
     order = sorted(ids, key=lambda pid: (-stats[pid]["points"], pid))
-    clusters = _cluster_by(order, key_func=lambda pid: stats[pid]["points"])
+    clusters = _apply_overrides(
+        _cluster_by(order, key_func=lambda pid: stats[pid]["points"]), tie_overrides
+    )
 
     for tiebreak in tiebreak_chain:
         if tiebreak.criterion == TiebreakCriterion.MANUAL:
-            continue  # traité après la boucle : dernier recours
+            continue  # une TieResolution est déjà appliquée dès qu'un cluster la matche (voir _apply_overrides)
         next_clusters = []
         for cluster in clusters:
             if len(cluster) == 1:
@@ -177,7 +196,7 @@ def _rank_participations(participations, stats, h2h, tiebreak_chain, tie_overrid
             )
             sub_sorted = sorted(cluster, key=key_func)
             next_clusters.extend(_cluster_by(sub_sorted, key_func=key_func))
-        clusters = next_clusters
+        clusters = _apply_overrides(next_clusters, tie_overrides)
 
     ordered: list[int] = []
     tie_group_of: dict[int, int] = {}
@@ -186,20 +205,19 @@ def _rank_participations(participations, stats, h2h, tiebreak_chain, tie_overrid
 
     for cluster in clusters:
         if len(cluster) > 1:
+            # Aucune TieResolution ne matchait ce cluster à aucune étape (sinon
+            # _apply_overrides l'aurait déjà résolu) : chaîne épuisée, tri de
+            # repli stable — jamais un critère inventé, juste un ordre affiché.
             tie_group_counter += 1
-            override = tie_overrides.get(frozenset(cluster))
-            if override:
-                cluster = [pid for pid in override if pid in cluster]
-            else:
-                unresolved.update(cluster)
-                cluster = sorted(
-                    cluster,
-                    key=lambda pid: (
-                        participations_by_id[pid].seed or 10**6,
-                        participations_by_id[pid].player.last_name,
-                        participations_by_id[pid].player.first_name,
-                    ),
-                )
+            unresolved.update(cluster)
+            cluster = sorted(
+                cluster,
+                key=lambda pid: (
+                    participations_by_id[pid].seed or 10**6,
+                    participations_by_id[pid].player.last_name,
+                    participations_by_id[pid].player.first_name,
+                ),
+            )
             for pid in cluster:
                 tie_group_of[pid] = tie_group_counter
         ordered.extend(cluster)

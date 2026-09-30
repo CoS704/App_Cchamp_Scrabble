@@ -1,11 +1,14 @@
 """Tests championnats, divisions, règles de promotion/relégation (§60)."""
+from io import StringIO
+
 from django.core.exceptions import ValidationError
+from django.core.management import call_command
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 
-from championships.models import Championship, Division, PromotionRelegationRule
+from championships.models import Championship, ChampionshipTiebreak, Division, PromotionRelegationRule
 from championships.services import regenerate_tiebreak_chain
-from core.enums import ChampionshipStatus, MovementType, PrimaryTiebreak, PromotionMethod
+from core.enums import ChampionshipStatus, MovementType, PrimaryTiebreak, PromotionMethod, TiebreakCriterion
 from core.factories import make_championship, make_division, make_user
 
 
@@ -14,13 +17,59 @@ class ChampionshipInitializationTests(TestCase):
         championship = make_championship(name="Init Championship", season="init-1")
         self.assertTrue(hasattr(championship, "settings"))
         chain = list(championship.tiebreaks.order_by("position").values_list("criterion", flat=True))
-        self.assertEqual(chain, ["SCORE_DIFF", "HEAD_TO_HEAD", "WINS", "MANUAL"])
+        self.assertEqual(chain, ["SCORE_DIFF", "HEAD_TO_HEAD", "WINS", "ALPHABETICAL", "MANUAL"])
 
     def test_regenerate_chain_on_head_to_head_primary(self):
         championship = make_championship(name="Init Championship 2", season="init-2")
         regenerate_tiebreak_chain(championship, PrimaryTiebreak.HEAD_TO_HEAD)
         chain = list(championship.tiebreaks.order_by("position").values_list("criterion", flat=True))
         self.assertEqual(chain[0], "HEAD_TO_HEAD")
+
+
+class AddAlphabeticalTiebreakCommandTests(TestCase):
+    """Championnat créé avant l'ajout du critère ALPHABETICAL (chaîne figée à
+    la création) — la commande le retrofit sans toucher aux positions ni
+    critères existants."""
+
+    def setUp(self):
+        self.championship = make_championship(name="Legacy Chain Championship", season="legacy-1")
+        # Simule une chaîne "ancienne", sans ALPHABETICAL.
+        self.championship.tiebreaks.all().delete()
+        ChampionshipTiebreak.objects.bulk_create([
+            ChampionshipTiebreak(championship=self.championship, position=1, criterion=TiebreakCriterion.SCORE_DIFF),
+            ChampionshipTiebreak(championship=self.championship, position=2, criterion=TiebreakCriterion.HEAD_TO_HEAD),
+            ChampionshipTiebreak(championship=self.championship, position=3, criterion=TiebreakCriterion.WINS),
+            ChampionshipTiebreak(championship=self.championship, position=4, criterion=TiebreakCriterion.MANUAL),
+        ])
+
+    def _chain(self):
+        return list(
+            self.championship.tiebreaks.order_by("position").values_list("position", "criterion")
+        )
+
+    def test_dry_run_does_not_modify(self):
+        call_command("add_alphabetical_tiebreak", stdout=StringIO())
+        self.assertEqual(
+            self._chain(),
+            [(1, "SCORE_DIFF"), (2, "HEAD_TO_HEAD"), (3, "WINS"), (4, "MANUAL")],
+        )
+
+    def test_apply_inserts_before_manual_and_shifts_it(self):
+        call_command("add_alphabetical_tiebreak", "--apply", stdout=StringIO())
+        self.assertEqual(
+            self._chain(),
+            [
+                (1, "SCORE_DIFF"), (2, "HEAD_TO_HEAD"), (3, "WINS"),
+                (4, "ALPHABETICAL"), (5, "MANUAL"),
+            ],
+        )
+
+    def test_is_idempotent(self):
+        call_command("add_alphabetical_tiebreak", "--apply", stdout=StringIO())
+        out = StringIO()
+        call_command("add_alphabetical_tiebreak", "--apply", stdout=out)
+        self.assertIn("Rien à faire", out.getvalue())
+        self.assertEqual(self.championship.tiebreaks.count(), 5)
 
 
 class DivisionConstraintTests(TestCase):

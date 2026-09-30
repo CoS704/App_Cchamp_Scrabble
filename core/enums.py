@@ -32,6 +32,7 @@ class TiebreakCriterion(models.TextChoices):
     SCORE_AGAINST_ASC = "SCORE_AGAINST_ASC", "Score total encaissé (croissant)"
     FORM = "FORM", "Forme récente"
     SEED = "SEED", "Tête de série"
+    ALPHABETICAL = "ALPHABETICAL", "Ordre alphabétique"
     DRAW_LOTS = "DRAW_LOTS", "Tirage au sort"
     MANUAL = "MANUAL", "Décision de l'arbitre"
 

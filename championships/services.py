@@ -13,12 +13,14 @@ DEFAULT_TIEBREAK_CHAINS = {
         TiebreakCriterion.SCORE_DIFF,
         TiebreakCriterion.HEAD_TO_HEAD,
         TiebreakCriterion.WINS,
+        TiebreakCriterion.ALPHABETICAL,
         TiebreakCriterion.MANUAL,
     ],
     PrimaryTiebreak.HEAD_TO_HEAD: [
         TiebreakCriterion.HEAD_TO_HEAD,
         TiebreakCriterion.SCORE_DIFF,
         TiebreakCriterion.WINS,
+        TiebreakCriterion.ALPHABETICAL,
         TiebreakCriterion.MANUAL,
     ],
 }

@@ -48,14 +48,33 @@ class RankingEngineTests(TestCase):
         self.assertEqual(order, [self.py.id, self.pz.id, self.px.id])
         self.assertFalse(snapshot.has_unresolved_tie)
 
-    def test_persistent_tie_is_flagged_not_invented(self):
-        # Cycle parfaitement symétrique : aucun critère ne peut départager.
+    def test_symmetric_cycle_is_now_resolved_alphabetically(self):
+        # Cycle parfaitement symétrique sur points/diff/confrontations/victoires :
+        # la chaîne par défaut inclut désormais ALPHABETICAL avant MANUAL, donc
+        # ce n'est plus un cas "non résolu" — X/Y/Z sont triés par nom de joueur.
         _validated_match(self.championship, self.division, self.phase, self.px, self.py, 400, 300)
         _validated_match(self.championship, self.division, self.phase, self.py, self.pz, 400, 300)
         _validated_match(self.championship, self.division, self.phase, self.pz, self.px, 400, 300)
         snapshot = compute_standings(championship=self.championship, division=self.division, phase=self.phase)
+        self.assertFalse(snapshot.has_unresolved_tie)
+        order = list(snapshot.rows.order_by("rank").values_list("participation_id", flat=True))
+        self.assertEqual(order, [self.px.id, self.py.id, self.pz.id])  # "X R" < "Y R" < "Z R"
+
+    def test_persistent_tie_is_flagged_not_invented(self):
+        # Même cycle symétrique, mais avec des joueurs strictement homonymes :
+        # même ALPHABETICAL ne peut rien départager ici — doit rester signalé,
+        # jamais résolu par un critère inventé.
+        twin_a = register(self.championship, make_player("Même Nom", "Twin"), self.division)
+        twin_b = register(self.championship, make_player("Même Nom", "Twin"), self.division)
+        twin_c = register(self.championship, make_player("Même Nom", "Twin"), self.division)
+        _validated_match(self.championship, self.division, self.phase, twin_a, twin_b, 400, 300)
+        _validated_match(self.championship, self.division, self.phase, twin_b, twin_c, 400, 300)
+        _validated_match(self.championship, self.division, self.phase, twin_c, twin_a, 400, 300)
+        snapshot = compute_standings(championship=self.championship, division=self.division, phase=self.phase)
+        rows = {r.participation_id: r for r in snapshot.rows.all()}
+        tied_ids = {twin_a.id, twin_b.id, twin_c.id}
         self.assertTrue(snapshot.has_unresolved_tie)
-        tie_groups = {r.tie_group for r in snapshot.rows.all()}
+        tie_groups = {rows[pid].tie_group for pid in tied_ids}
         self.assertEqual(len(tie_groups), 1)
         self.assertNotIn(None, tie_groups)
 
