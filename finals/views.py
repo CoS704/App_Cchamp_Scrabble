@@ -10,6 +10,8 @@ from championships.models import Championship
 from core.enums import AuditAction, ChampionshipStatus
 from core.permissions import ChampionshipAdminRequiredMixin
 
+from competition.services.phases import has_knockout_stage
+
 from .models import Bracket
 from .services import bracket_rounds_context, generate_bracket
 
@@ -25,7 +27,9 @@ class BracketListView(ChampionshipScopedMixin, ChampionshipAdminRequiredMixin, L
         context = super().get_context_data(**kwargs)
         existing_ids = {b.division_id for b in context["brackets"]}
         context["divisions_without_bracket"] = self.championship.divisions.exclude(id__in=existing_ids)
-        context["finals_enabled"] = self.championship.settings.finals_enabled
+        settings_obj = self.championship.settings
+        context["finals_enabled"] = has_knockout_stage(settings_obj)
+        context["competition_format"] = settings_obj.competition_format
         return context
 
 

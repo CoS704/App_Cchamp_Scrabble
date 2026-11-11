@@ -300,7 +300,7 @@ class CalendarDatesFollowTheDailyLimitTests(TestCase):
         from competition.services.scheduling import generate_schedule, redate_league_calendar
 
         championship, division = self._division_with_players(per_day=None)
-        start = datetime.date(2026, 10, 1)
+        start = datetime.date.today() + datetime.timedelta(days=30)  # futur : un redate ne remonte jamais avant aujourd'hui
         generate_schedule(championship=championship, division=division, start_date=start, interval_days=1)
         total_before = Match.objects.filter(division=division).count()
         championship.settings.max_matches_per_day = 2
@@ -478,6 +478,8 @@ class SettingsFormTriggersRedateTests(TestCase):
             "points_forfeit_win": "3", "points_forfeit_loss": "0",
             "forfeit_score_for": "0", "forfeit_score_against": "0",
             "primary_tiebreak": "SCORE_DIFF", "round_robin_legs": "1",
+            "competition_format": "LEAGUE", "groups_count": "4", "group_qualifiers": "2",
+            "group_wildcards": "0",
             "result_entry_policy": "WINNER_ONLY", "result_confirmation_required": "on",
             "double_entry_auto_confirm": "on", "late_match_threshold_days": "0",
             "max_matches_per_day": "3", "upcoming_matches_shown": "3",

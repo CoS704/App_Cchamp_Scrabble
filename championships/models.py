@@ -6,6 +6,7 @@ from django.utils.text import slugify
 
 from core.enums import (
     ChampionshipStatus,
+    CompetitionFormat,
     FinalsFormat,
     MovementType,
     PrimaryTiebreak,
@@ -149,6 +150,47 @@ class ChampionshipSettings(TimeStampedModel):
         max_length=16,
         choices=PrimaryTiebreak.choices,
         default=PrimaryTiebreak.SCORE_DIFF,
+    )
+
+    # Format de compétition
+    competition_format = models.CharField(
+        "format de la compétition",
+        max_length=20,
+        choices=CompetitionFormat.choices,
+        default=CompetitionFormat.LEAGUE,
+        help_text=(
+            "Championnat : tous contre tous. Coupe du monde : groupes puis élimination "
+            "directe. Élimination directe : tableau dès le premier tour. Système "
+            "suisse : rondes appariées selon le classement. Ne peut plus être changé "
+            "une fois des matchs générés."
+        ),
+    )
+    groups_count = models.PositiveSmallIntegerField(
+        "nombre de groupes",
+        default=4,
+        validators=[MinValueValidator(2)],
+        help_text="Format coupe du monde : nombre de groupes tirés dans chaque division.",
+    )
+    group_qualifiers = models.PositiveSmallIntegerField(
+        "qualifiés par groupe",
+        default=2,
+        validators=[MinValueValidator(1)],
+        help_text="Format coupe du monde : nombre de premiers de chaque groupe qui passent en élimination directe.",
+    )
+    group_wildcards = models.PositiveSmallIntegerField(
+        "repêchés (meilleurs suivants)",
+        default=0,
+        help_text=(
+            "Format coupe du monde : nombre de joueurs repêchés parmi les meilleurs "
+            "du rang suivant de chaque groupe (ex. meilleurs 3ᵉ). 0 = aucun."
+        ),
+    )
+    swiss_rounds = models.PositiveSmallIntegerField(
+        "nombre de rondes (suisse)",
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1)],
+        help_text="Système suisse. Vide = automatique (selon le nombre de joueurs).",
     )
 
     # Format

@@ -46,7 +46,9 @@
           <form method="post" action="{% url 'finals:generate' championship.slug division.pk %}">
             {% csrf_token %}
             <button type="submit" class="btn btn-sm btn-primary">
-              Générer ({{ championship.settings.finals_qualifiers_count }} qualifiés)
+              {% if competition_format == "KNOCKOUT" %}Générer le tableau (tous les joueurs)
+              {% elif competition_format == "GROUPS_KNOCKOUT" %}Générer depuis les groupes
+              {% else %}Générer ({{ championship.settings.finals_qualifiers_count }} qualifiés){% endif %}
             </button>
           </form>
         </div>

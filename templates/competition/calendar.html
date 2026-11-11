@@ -12,6 +12,7 @@
     Retour au championnat
   </a>
 </div>
+<p class="mb-3"><span class="badge text-bg-primary">Format : {{ format_label }}</span></p>
 
 <div class="row g-3 mb-4">
   {% for division in divisions %}
@@ -19,15 +20,39 @@
       <div class="card shadow-sm h-100">
         <div class="card-body">
           <h2 class="h6">{{ division.name }}</h2>
-          {% if division.has_schedule %}
+          {% if competition_format == "KNOCKOUT" %}
+            <p class="text-muted mb-2">{{ division.n_players }} joueur(s) — {{ division.plan_summary }}.</p>
+            <a href="{% url 'finals:list' championship.slug %}" class="btn btn-sm btn-primary">
+              <i class="bi bi-diagram-3 me-1"></i>Générer / voir le tableau
+            </a>
+          {% elif division.has_schedule %}
             <p class="mb-1">
               {{ division.played_count }} / {{ division.total_count }} match(s) joué(s)
             </p>
+            {% if division.swiss %}
+              <p class="small text-muted mb-1">
+                Ronde {{ division.swiss.current_round }} / {{ division.swiss.total_rounds }}
+                {% if division.swiss.finished %}— terminé{% elif not division.swiss.round_done %}— en cours{% endif %}
+              </p>
+            {% endif %}
             {% if division.total_count %}
               {% widthratio division.played_count division.total_count 100 as pct %}
               <div class="progress mb-2" style="height: 6px;">
                 <div class="progress-bar" style="width: {{ pct }}%;"></div>
               </div>
+            {% endif %}
+            {% if division.swiss.can_generate_next %}
+              <form method="post" action="{% url 'competition:swiss_next' championship.slug division.pk %}" class="d-inline">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-primary">
+                  <i class="bi bi-skip-forward me-1"></i>Générer la ronde suivante
+                </button>
+              </form>
+            {% endif %}
+            {% if competition_format == "GROUPS_KNOCKOUT" %}
+              <a href="{% url 'finals:list' championship.slug %}" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-diagram-3 me-1"></i>Phase à élimination
+              </a>
             {% endif %}
             <a href="{% url 'competition:generate' championship.slug division.pk %}" class="btn btn-sm btn-outline-secondary">
               Régénérer
@@ -35,10 +60,12 @@
           {% else %}
             <p class="text-muted mb-2">
               {{ division.n_players }} joueur(s) → {{ division.expected_matches }} match(s),
-              {{ division.expected_matchdays }} journée(s) prévues.
+              {{ division.expected_matchdays }} {% if competition_format == "SWISS" %}ronde(s){% else %}journée(s){% endif %} prévues.
+              {% if division.plan_summary %}<br><small>{{ division.plan_summary }}.</small>{% endif %}
             </p>
             <a href="{% url 'competition:generate' championship.slug division.pk %}" class="btn btn-sm btn-primary">
-              <i class="bi bi-calendar-plus me-1"></i>Générer le calendrier
+              <i class="bi bi-calendar-plus me-1"></i>
+              {% if competition_format == "GROUPS_KNOCKOUT" %}Tirer les groupes{% elif competition_format == "SWISS" %}Lancer la ronde 1{% else %}Générer le calendrier{% endif %}
             </a>
           {% endif %}
         </div>
@@ -88,7 +115,10 @@
       {% for match in matches %}
       <tr>
         <td>{{ match.matchday.number|default:"—" }}</td>
-        <td>{{ match.division.name }}</td>
+        <td>
+          {{ match.division.name }}
+          {% if match.phase.kind != "LEAGUE" %}<br><small class="text-muted">{{ match.phase.name }}</small>{% endif %}
+        </td>
         <td>{{ match.player1.player }}</td>
         <td>{{ match.player2.player|default:"Exempt" }}</td>
         <td>{{ match.scheduled_date|date:"d/m/Y"|default:"—" }}</td>

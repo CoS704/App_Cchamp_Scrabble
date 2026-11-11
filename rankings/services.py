@@ -225,13 +225,15 @@ def _rank_participations(participations, stats, h2h, tiebreak_chain, tie_overrid
     return ordered, tie_group_of, unresolved
 
 
-def _movement_zones(championship, division, ordered, finals_qualifiers_count):
+def _movement_zones(championship, division, ordered, finals_qualifiers_count, *, apply_rules=True):
     from championships.services import rule_rank_indices
 
     n = len(ordered)
     zones = {}
-    rules = championship.movement_rules.filter(source_division=division, is_active=True).order_by(
-        "priority"
+    rules = (
+        championship.movement_rules.filter(source_division=division, is_active=True).order_by("priority")
+        if apply_rules
+        else []
     )
     for rule in rules:
         zone = MovementZone.PROMOTION if rule.movement_type == MovementType.PROMOTION else MovementZone.RELEGATION
@@ -259,25 +261,33 @@ def _load_tie_overrides(championship, division, phase):
 
 
 def all_divisions_standings(championship):
-    """Classement de chaque division d'un championnat — recalculé à l'appel.
+    """Classements d'un championnat — un par division, ou un par groupe pour le
+    format coupe du monde — recalculés à l'appel.
 
     Partagé entre le dashboard admin, la page classement admin et la page
     classement publique pour ne pas dupliquer cette logique (§32, §56).
     """
-    from competition.models import Phase
+    from competition.services.phases import standings_phases
 
     result = []
     for division in championship.divisions.all():
-        phase = Phase.objects.filter(
-            championship=championship, division=division, kind=PhaseKind.LEAGUE
-        ).first()
-        snapshot = None
-        rows = None
-        if phase:
+        phases = standings_phases(championship, division)
+        if not phases:
+            result.append(
+                {"division": division, "phase": None, "label": division.name, "snapshot": None, "rows": None}
+            )
+            continue
+        for phase in phases:
             snapshot = compute_standings(championship=championship, division=division, phase=phase)
-            if snapshot:
-                rows = snapshot.rows.select_related("participation__player").order_by("rank")
-        result.append({"division": division, "snapshot": snapshot, "rows": rows})
+            rows = (
+                snapshot.rows.select_related("participation__player").order_by("rank")
+                if snapshot
+                else None
+            )
+            label = division.name if phase.kind != PhaseKind.GROUP else f"{division.name} — {phase.name}"
+            result.append(
+                {"division": division, "phase": phase, "label": label, "snapshot": snapshot, "rows": rows}
+            )
     return result
 
 
@@ -432,11 +442,12 @@ def compute_standings(*, championship, division, phase):
     a au moins un joueur, même sans aucun match joué).
     """
     from competition.models import Match
+    from competition.services.phases import phase_participations
 
     participations = list(
-        division.participations.exclude(status__in=["WITHDRAWN", "DISQUALIFIED"]).select_related(
-            "player"
-        )
+        phase_participations(phase, division)
+        .exclude(status__in=["WITHDRAWN", "DISQUALIFIED"])
+        .select_related("player")
     )
     if not participations:
         return None
@@ -457,9 +468,16 @@ def compute_standings(*, championship, division, phase):
         participations, stats, h2h, tiebreak_chain, tie_overrides, settings_obj, championship.id
     )
 
-    movement_map = _movement_zones(
-        championship, division, ordered, settings_obj.finals_qualifiers_count if settings_obj.finals_enabled else 0
-    )
+    if phase.kind == PhaseKind.GROUP:
+        # Un groupe n'a ni promotion ni relégation : seuls les qualifiés comptent.
+        movement_map = _movement_zones(
+            championship, division, ordered, settings_obj.group_qualifiers, apply_rules=False
+        )
+    else:
+        movement_map = _movement_zones(
+            championship, division, ordered,
+            settings_obj.finals_qualifiers_count if settings_obj.finals_enabled else 0,
+        )
     previous_ranks = _previous_ranks(division, phase)
 
     StandingSnapshot.objects.filter(division=division, phase=phase, is_current=True).update(

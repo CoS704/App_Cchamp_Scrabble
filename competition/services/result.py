@@ -136,6 +136,11 @@ def submit_result(
     """
     if score1 < 0 or score2 < 0:
         raise ValidationError("Les scores ne peuvent pas être négatifs.")
+    if score1 == score2 and outcome_type == OutcomeType.NORMAL and match.bracket_slots.exists():
+        raise ValidationError(
+            "Un match à élimination directe ne peut pas se terminer sur une égalité : "
+            "il faut un vainqueur pour qualifier un joueur au tour suivant."
+        )
 
     others = list(
         match.submissions.filter(is_superseded=False)

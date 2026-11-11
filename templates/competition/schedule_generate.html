@@ -3,14 +3,22 @@
 {% block title %}Générer le calendrier — {{ division.name }}{% endblock %}
 
 {% block content %}
-<h1 class="h4 mb-1">Générer le calendrier</h1>
-<p class="text-muted">{{ championship.name }} — {{ division.name }}</p>
+<h1 class="h4 mb-1">
+  {% if competition_format == "GROUPS_KNOCKOUT" %}Tirer les groupes{% elif competition_format == "SWISS" %}Lancer le système suisse{% else %}Générer le calendrier{% endif %}
+</h1>
+<p class="text-muted">{{ championship.name }} — {{ division.name }} — {{ format_label }}</p>
 
 <div class="alert alert-info" style="max-width: 640px;">
   <strong>{{ n_players }}</strong> joueur(s) actif(s) →
-  <strong>{{ expected_matches }}</strong> match(s) sur
-  <strong>{{ expected_matchdays }}</strong> journée(s)
-  ({{ championship.settings.round_robin_legs }} confrontation(s) par paire).
+  {% if competition_format == "SWISS" %}
+    <strong>{{ expected_matchdays }}</strong> ronde(s) : la ronde 1 est générée maintenant, les suivantes
+    une fois la précédente terminée.
+  {% else %}
+    <strong>{{ expected_matches }}</strong> match(s) sur
+    <strong>{{ expected_matchdays }}</strong> journée(s)
+    ({{ championship.settings.round_robin_legs }} confrontation(s) par paire).
+  {% endif %}
+  {% if plan_summary %}<br><small>{{ plan_summary }}.</small>{% endif %}
 </div>
 
 {% if has_existing %}
@@ -33,7 +41,9 @@
       {% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
     </div>
   {% endfor %}
-  <button type="submit" class="btn btn-primary">Générer</button>
+  <button type="submit" class="btn btn-primary">
+    {% if competition_format == "GROUPS_KNOCKOUT" %}Tirer au sort et générer{% else %}Générer{% endif %}
+  </button>
   <a href="{% url 'competition:list' championship.slug %}" class="btn btn-link">Annuler</a>
 </form>
 {% endblock %}

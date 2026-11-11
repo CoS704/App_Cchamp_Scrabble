@@ -7,13 +7,17 @@ joueur1/joueur2 inversées.
 """
 from __future__ import annotations
 
+import random
 from datetime import timedelta
 
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.db.models import Count, Q
 from django.utils import timezone
 
-from core.enums import ParticipationStatus, PhaseKind, ResultStatus
+from core.enums import CompetitionFormat, ParticipationStatus, PhaseKind, ResultStatus
+
+from .phases import STANDINGS_KINDS
 
 from ..models import Match, Matchday, Phase
 
@@ -62,55 +66,17 @@ def generate_round_robin_rounds(participation_ids: list[int]) -> list[list[tuple
     return rounds
 
 
-def generate_schedule(
-    *,
-    championship,
-    division,
-    start_date=None,
-    interval_days: int = 7,
-    force: bool = False,
+def _active_participations(division):
+    return list(
+        division.participations.filter(status__in=ACTIVE_PARTICIPATION_STATUSES).order_by("seed", "id")
+    )
+
+
+def _create_round_robin(
+    *, championship, division, phase, participations, legs, start_date, interval_days, per_day
 ) -> list[Match]:
-    """Génère (ou régénère) le calendrier de phase de ligue d'une division.
-
-    Lève ``ValidationError`` si : moins de 2 joueurs, calendrier déjà présent
-    sans ``force``, ou des résultats sont déjà validés (on ne détruit jamais
-    des matchs validés).
-    """
-    if division.championship_id != championship.id:
-        raise ValidationError("Cette division n'appartient pas à ce championnat.")
-
-    participations = list(
-        division.participations.filter(status__in=ACTIVE_PARTICIPATION_STATUSES)
-        .order_by("seed", "id")
-    )
-    if len(participations) < 2:
-        raise ValidationError(
-            "Il faut au moins 2 joueurs actifs inscrits pour générer un calendrier."
-        )
-
-    phase, _ = Phase.objects.get_or_create(
-        championship=championship,
-        division=division,
-        kind=PhaseKind.LEAGUE,
-        order=1,
-        defaults={"name": f"Phase de ligue — {division.name}"},
-    )
-
-    existing = Match.objects.filter(phase=phase)
-    if existing.exists():
-        if not force:
-            raise ValidationError(
-                "Un calendrier existe déjà pour cette division. "
-                "Cochez le remplacement pour le régénérer."
-            )
-        if existing.filter(result_status=ResultStatus.VALIDATED).exists():
-            raise ValidationError(
-                "Impossible de régénérer : des résultats sont déjà validés dans cette phase."
-            )
-        existing.delete()
-        Matchday.objects.filter(phase=phase).delete()
-
-    legs = championship.settings.round_robin_legs
+    """Crée journées et matchs d'un tous-contre-tous pour une phase donnée
+    (ligue entière, ou un groupe du format coupe du monde)."""
     ids = [p.id for p in participations]
     rounds = generate_round_robin_rounds(ids)
 
@@ -120,7 +86,6 @@ def generate_schedule(
     scheduled_dates: dict[int, object] = {}
     matchdays_to_create = []
     matchday_number = 0
-    per_day = championship.settings.max_matches_per_day or 1
     for leg in range(1, legs + 1):
         for _round_pairs in rounds:
             matchday_number += 1
@@ -164,6 +129,207 @@ def generate_schedule(
     return Match.objects.bulk_create(matches_to_create)
 
 
+def generate_schedule(
+    *,
+    championship,
+    division,
+    start_date=None,
+    interval_days: int = 7,
+    force: bool = False,
+) -> list[Match]:
+    """Génère (ou régénère) le calendrier d'une division selon le format de
+    la compétition (championnat, groupes, suisse).
+
+    Lève ``ValidationError`` si : moins de 2 joueurs, calendrier déjà présent
+    sans ``force``, ou des résultats sont déjà validés (on ne détruit jamais
+    des matchs validés).
+    """
+    if division.championship_id != championship.id:
+        raise ValidationError("Cette division n'appartient pas à ce championnat.")
+
+    fmt = championship.settings.competition_format
+    if fmt == CompetitionFormat.GROUPS_KNOCKOUT:
+        return generate_group_stage(
+            championship=championship, division=division, start_date=start_date,
+            interval_days=interval_days, force=force,
+        )
+    if fmt == CompetitionFormat.SWISS:
+        from .swiss import generate_swiss_round
+
+        return generate_swiss_round(
+            championship=championship, division=division, start_date=start_date,
+            interval_days=interval_days, force=force,
+        )
+    if fmt == CompetitionFormat.KNOCKOUT:
+        raise ValidationError(
+            "Ce format n'a pas de calendrier : générez directement le tableau "
+            "d'élimination directe depuis « Phases finales »."
+        )
+
+    participations = _active_participations(division)
+    if len(participations) < 2:
+        raise ValidationError(
+            "Il faut au moins 2 joueurs actifs inscrits pour générer un calendrier."
+        )
+
+    phase, _ = Phase.objects.get_or_create(
+        championship=championship,
+        division=division,
+        kind=PhaseKind.LEAGUE,
+        order=1,
+        defaults={"name": f"Phase de ligue — {division.name}"},
+    )
+
+    existing = Match.objects.filter(phase=phase)
+    if existing.exists():
+        if not force:
+            raise ValidationError(
+                "Un calendrier existe déjà pour cette division. "
+                "Cochez le remplacement pour le régénérer."
+            )
+        if existing.filter(result_status=ResultStatus.VALIDATED).exists():
+            raise ValidationError(
+                "Impossible de régénérer : des résultats sont déjà validés dans cette phase."
+            )
+        existing.delete()
+        Matchday.objects.filter(phase=phase).delete()
+
+    return _create_round_robin(
+        championship=championship, division=division, phase=phase, participations=participations,
+        legs=championship.settings.round_robin_legs, start_date=start_date,
+        interval_days=interval_days, per_day=championship.settings.max_matches_per_day or 1,
+    )
+
+
+def draw_groups(participations, groups_count: int, rng: random.Random) -> list[list]:
+    """Tirage au sort en pots : les joueurs sont classés par tête de série
+    (les non classés à la fin, au hasard), découpés en pots de ``groups_count``
+    joueurs, et chaque pot est réparti au hasard — un joueur par groupe et par
+    pot. Les groupes diffèrent d'au plus un joueur."""
+    shuffled = list(participations)
+    rng.shuffle(shuffled)
+    # tri stable : le mélange préalable départage les ex æquo de tête de série
+    shuffled.sort(key=lambda p: p.seed if p.seed is not None else 10**6)
+
+    groups: list[list] = [[] for _ in range(groups_count)]
+    for pot_start in range(0, len(shuffled), groups_count):
+        pot = shuffled[pot_start : pot_start + groups_count]
+        slots = list(range(groups_count))
+        rng.shuffle(slots)
+        for participation, slot in zip(pot, slots):
+            groups[slot].append(participation)
+    return groups
+
+
+def group_sizes(n_players: int, groups_count: int) -> list[int]:
+    """Effectifs des groupes pour ``n_players`` répartis en ``groups_count`` groupes."""
+    base, extra = divmod(n_players, groups_count)
+    return [base + 1 if i < extra else base for i in range(groups_count)]
+
+
+def format_plan(settings_obj, n_players: int) -> dict:
+    """Ce que produira la génération pour ``n_players`` joueurs, selon le
+    format : nombre de matchs, de journées/rondes et un résumé lisible."""
+    legs = settings_obj.round_robin_legs
+    fmt = settings_obj.competition_format
+    if fmt == CompetitionFormat.GROUPS_KNOCKOUT:
+        sizes = group_sizes(n_players, settings_obj.groups_count)
+        matches = sum(expected_match_count(size, legs) for size in sizes)
+        days = max((expected_matchday_count(size, legs) for size in sizes), default=0)
+        summary = (
+            f"{settings_obj.groups_count} groupes de {min(sizes)}"
+            + (f" à {max(sizes)}" if min(sizes) != max(sizes) else "")
+            + f" joueurs, puis {settings_obj.group_qualifiers} qualifié(s) par groupe"
+            + (f" + {settings_obj.group_wildcards} repêché(s)" if settings_obj.group_wildcards else "")
+            + " en élimination directe"
+        )
+        return {"matches": matches, "matchdays": days, "summary": summary}
+    if fmt == CompetitionFormat.SWISS:
+        from .swiss import swiss_rounds_total
+
+        rounds = swiss_rounds_total(settings_obj, n_players) if n_players >= 2 else 0
+        return {
+            "matches": rounds * (n_players // 2), "matchdays": rounds,
+            "summary": f"{rounds} rondes appariées au fur et à mesure selon le classement",
+        }
+    if fmt == CompetitionFormat.KNOCKOUT:
+        size = 1
+        while size < n_players:
+            size *= 2
+        return {
+            "matches": max(n_players - 1, 0), "matchdays": max(size.bit_length() - 1, 0),
+            "summary": f"tableau de {size} places ({size - n_players} exempt(s))" if n_players >= 2 else "",
+        }
+    return {
+        "matches": expected_match_count(n_players, legs),
+        "matchdays": expected_matchday_count(n_players, legs),
+        "summary": "",
+    }
+
+
+def group_letter(index: int) -> str:
+    letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    return letters[index] if index < len(letters) else str(index + 1)
+
+
+@transaction.atomic
+def generate_group_stage(
+    *, championship, division, start_date=None, interval_days: int = 7, force: bool = False,
+    draw_seed: int | None = None,
+) -> list[Match]:
+    """Format coupe du monde, étape 1 : tire les groupes de la division et
+    génère le tous-contre-tous de chaque groupe."""
+    settings_obj = championship.settings
+    groups_count = settings_obj.groups_count
+    participations = _active_participations(division)
+    if len(participations) < groups_count * 2:
+        raise ValidationError(
+            f"{groups_count} groupes demandent au moins {groups_count * 2} joueurs actifs "
+            f"({len(participations)} inscrit(s) dans cette division)."
+        )
+
+    existing_phases = Phase.objects.filter(
+        championship=championship, division=division, kind=PhaseKind.GROUP
+    )
+    if existing_phases.exists():
+        if not force:
+            raise ValidationError(
+                "Les groupes existent déjà pour cette division. "
+                "Cochez le remplacement pour les tirer à nouveau."
+            )
+        if Match.objects.filter(
+            phase__in=existing_phases, result_status=ResultStatus.VALIDATED
+        ).exists():
+            raise ValidationError(
+                "Impossible de refaire le tirage : des résultats sont déjà validés dans les groupes."
+            )
+        if division.brackets.exists():
+            raise ValidationError("Impossible de refaire le tirage : le tableau final est déjà généré.")
+        existing_phases.delete()  # cascade : journées et matchs
+
+    if draw_seed is None:
+        draw_seed = random.SystemRandom().randrange(1, 2**31)
+    groups = draw_groups(participations, groups_count, random.Random(draw_seed))
+
+    legs = settings_obj.round_robin_legs
+    per_day = settings_obj.max_matches_per_day or 1
+    matches: list[Match] = []
+    for index, members in enumerate(groups):
+        phase = Phase.objects.create(
+            championship=championship, division=division, kind=PhaseKind.GROUP, order=index + 1,
+            name=f"Groupe {group_letter(index)}", config={"draw_seed": draw_seed},
+        )
+        phase.participants.set(members)
+        matches.extend(
+            _create_round_robin(
+                championship=championship, division=division, phase=phase,
+                participations=sorted(members, key=lambda p: (p.seed is None, p.seed or 0, p.id)),
+                legs=legs, start_date=start_date, interval_days=interval_days, per_day=per_day,
+            )
+        )
+    return matches
+
+
 def redate_league_calendar(championship, *, settings_obj=None, today=None) -> int:
     """Recale les dates des calendriers de ligue existants sur le nombre de
     matchs par jour du réglage (N journées par date), sans rien supprimer.
@@ -193,7 +359,7 @@ def redate_league_calendar(championship, *, settings_obj=None, today=None) -> in
     per_day = (settings_obj or championship.settings).max_matches_per_day or 1
     today = today or timezone.localdate()
     changed = 0
-    phases = Phase.objects.filter(championship=championship, kind=PhaseKind.LEAGUE)
+    phases = Phase.objects.filter(championship=championship, kind__in=STANDINGS_KINDS)
     for phase in phases:
         matchdays = list(Matchday.objects.filter(phase=phase).order_by("number"))
         dated = [md for md in matchdays if md.scheduled_date]

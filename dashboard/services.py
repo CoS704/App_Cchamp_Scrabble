@@ -14,9 +14,10 @@ from core.enums import (
     MatchStatus,
     OutcomeType,
     ParticipationStatus,
-    PhaseKind,
     ResultStatus,
 )
+
+from competition.services.phases import STANDINGS_KINDS, standings_phase_for, standings_phases
 
 
 def admin_dashboard_context(championship):
@@ -113,7 +114,9 @@ def admin_dashboard_context(championship):
     from competition.models import Matchday
 
     matchday_stats = list(
-        Matchday.objects.filter(phase__championship=championship, phase__kind=PhaseKind.LEAGUE).annotate(
+        Matchday.objects.filter(
+            phase__championship=championship, phase__kind__in=STANDINGS_KINDS
+        ).annotate(
             total_matches=Count("matches", distinct=True),
             unfinished_matches=Count(
                 "matches",
@@ -172,17 +175,14 @@ def admin_dashboard_context(championship):
 def _compute_snapshots_once(championship, divisions):
     """Un seul recalcul de classement par division — partagé entre le
     palmarès et les alertes plutôt que recalculé deux fois (§56)."""
-    from competition.models import Phase
     from rankings.services import compute_standings
 
     snapshots = {}
     for division in divisions:
-        phase = Phase.objects.filter(
-            championship=championship, division=division, kind=PhaseKind.LEAGUE
-        ).first()
-        snapshots[division.id] = compute_standings(
-            championship=championship, division=division, phase=phase
-        ) if phase else None
+        for phase in standings_phases(championship, division):
+            snapshots[(division.id, phase.id)] = compute_standings(
+                championship=championship, division=division, phase=phase
+            )
     return snapshots
 
 
@@ -231,8 +231,11 @@ def _build_alerts(championship, divisions, disputed_count, pending_results, late
                 "level": "info",
                 "message": f"« {division.name} » : moins de 2 joueurs, calendrier impossible.",
             })
-        snapshot = snapshots.get(division.id)
-        if snapshot and snapshot.has_unresolved_tie:
+        if any(
+            snapshot and snapshot.has_unresolved_tie
+            for (division_id, _phase_id), snapshot in snapshots.items()
+            if division_id == division.id
+        ):
             alerts.append({
                 "level": "danger",
                 "message": f"« {division.name} » : égalité non résolue au classement.",
@@ -283,12 +286,10 @@ def player_dashboard_context(user):
 
     championship, division = participation.championship, participation.division
 
-    from competition.models import Match, Phase
+    from competition.models import Match
     from rankings.services import compute_standings
 
-    phase = Phase.objects.filter(
-        championship=championship, division=division, kind=PhaseKind.LEAGUE
-    ).first()
+    phase = standings_phase_for(participation)
     row, total_rows = None, 0
     if phase:
         snapshot = compute_standings(championship=championship, division=division, phase=phase)

@@ -42,20 +42,23 @@ class _VirtualMatch:
         self.score2 = score2
 
 
-def _league_phase(championship, division):
-    from competition.models import Phase
+def _league_phase(participation):
+    """Phase de classement du joueur : sa ligue, son groupe ou son suisse."""
+    from competition.services.phases import standings_phase_for
 
-    return Phase.objects.filter(
-        championship=championship, division=division, kind=PhaseKind.LEAGUE
-    ).first()
+    return standings_phase_for(participation)
 
 
 def _current_stats(championship, division, phase):
     from competition.models import Match
     from rankings.services import _aggregate
 
+    from competition.services.phases import phase_participations
+
     participations = list(
-        division.participations.exclude(status__in=["WITHDRAWN", "DISQUALIFIED"]).select_related("player")
+        phase_participations(phase, division)
+        .exclude(status__in=["WITHDRAWN", "DISQUALIFIED"])
+        .select_related("player")
     )
     real_matches = list(
         Match.objects.filter(phase=phase, counts_for_standings=True, result_status=ResultStatus.VALIDATED)
@@ -163,8 +166,10 @@ def _simulate_final_rank_distribution(target_id, stats, fixtures, settings_obj) 
 
 def movement_probabilities(participation) -> dict | None:
     championship, division = participation.championship, participation.division
-    phase = _league_phase(championship, division)
-    if not phase:
+    phase = _league_phase(participation)
+    # Système suisse : les rondes futures ne sont pas encore appariées, il n'y
+    # a donc aucun match restant à simuler.
+    if not phase or phase.kind == PhaseKind.SWISS:
         return None
 
     participations, stats, _h2h = _current_stats(championship, division, phase)
@@ -197,17 +202,21 @@ def movement_probabilities(participation) -> dict | None:
 
     promotion_ranks: set[int] = set()
     relegation_ranks: set[int] = set()
-    for rule in championship.movement_rules.filter(source_division=division, is_active=True):
+    is_group = phase.kind == PhaseKind.GROUP
+    # Un groupe n'a ni promotion ni relégation : seuls comptent les qualifiés.
+    rules = [] if is_group else championship.movement_rules.filter(source_division=division, is_active=True)
+    for rule in rules:
         ranks = rule_rank_indices(rule, n)
         if rule.movement_type == MovementType.PROMOTION:
             promotion_ranks |= ranks
         else:
             relegation_ranks |= ranks
-    finals_ranks = (
-        set(range(1, min(settings_obj.finals_qualifiers_count, n) + 1))
-        if settings_obj.finals_enabled
-        else set()
-    )
+    if is_group:
+        finals_ranks = set(range(1, min(settings_obj.group_qualifiers, n) + 1))
+    elif settings_obj.finals_enabled:
+        finals_ranks = set(range(1, min(settings_obj.finals_qualifiers_count, n) + 1))
+    else:
+        finals_ranks = set()
 
     fixtures = _remaining_fixtures(phase, stats.keys())
     rank_probs = _simulate_final_rank_distribution(pid, stats, fixtures, settings_obj)
@@ -238,9 +247,11 @@ def simulate_outcomes(*, participation, outcomes: dict[int, str]) -> dict:
     """``outcomes`` : ``{match_id: "WIN"|"DRAW"|"LOSS"}`` du point de vue de
     ``participation``, pour ses seuls matchs restants. Ne persiste rien."""
     championship, division = participation.championship, participation.division
-    phase = _league_phase(championship, division)
+    phase = _league_phase(participation)
     if not phase:
         return {"error": "Aucune phase de ligue pour cette division."}
+    if phase.kind == PhaseKind.SWISS:
+        return {"error": "Simulation indisponible en système suisse : les prochaines rondes ne sont pas encore appariées."}
 
     participations, _stats, _h2h = _current_stats(championship, division, phase)
 
@@ -269,10 +280,15 @@ def simulate_outcomes(*, participation, outcomes: dict[int, str]) -> dict:
     ordered, tie_group_of, unresolved = _rank_participations(
         participations, stats, h2h, tiebreak_chain, {}, championship.settings, championship.id
     )
-    movement_map = _movement_zones(
-        championship, division, ordered,
-        championship.settings.finals_qualifiers_count if championship.settings.finals_enabled else 0,
-    )
+    if phase.kind == PhaseKind.GROUP:
+        movement_map = _movement_zones(
+            championship, division, ordered, championship.settings.group_qualifiers, apply_rules=False
+        )
+    else:
+        movement_map = _movement_zones(
+            championship, division, ordered,
+            championship.settings.finals_qualifiers_count if championship.settings.finals_enabled else 0,
+        )
 
     rank = ordered.index(participation.id) + 1
     return {

@@ -29,7 +29,7 @@
   <div class="card-header d-flex justify-content-between align-items-center">
     <span>
       <span class="badge me-1" style="background-color: {{ entry.division.color|default:'#6c757d' }};">&nbsp;</span>
-      {{ entry.division.name }}
+      {{ entry.label }}
     </span>
     {% if entry.snapshot.has_unresolved_tie %}
       <span class="badge text-bg-danger"><i class="bi bi-exclamation-triangle"></i> Égalité non résolue</span>

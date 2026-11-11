@@ -1,5 +1,6 @@
 from django import forms
 
+from core.enums import CompetitionFormat
 from core.forms import BootstrapFormMixin
 
 from .models import Championship, ChampionshipSettings, Division, PromotionRelegationRule
@@ -48,6 +49,11 @@ class ChampionshipSettingsForm(BootstrapFormMixin, forms.ModelForm):
             "forfeit_score_for",
             "forfeit_score_against",
             "primary_tiebreak",
+            "competition_format",
+            "groups_count",
+            "group_qualifiers",
+            "group_wildcards",
+            "swiss_rounds",
             "round_robin_legs",
             "result_entry_policy",
             "result_confirmation_required",
@@ -65,6 +71,28 @@ class ChampionshipSettingsForm(BootstrapFormMixin, forms.ModelForm):
             "max_matches_per_day": forms.NumberInput(attrs={"min": 1}),
             "upcoming_matches_shown": forms.NumberInput(attrs={"min": 1}),
         }
+
+    def clean(self):
+        cleaned = super().clean()
+        fmt = cleaned.get("competition_format")
+        if self.instance.pk and fmt and "competition_format" in self.changed_data:
+            from competition.models import Match
+
+            if Match.objects.filter(championship_id=self.instance.championship_id).exists():
+                self.add_error(
+                    "competition_format",
+                    "Le format ne peut plus être changé : des matchs existent déjà pour ce "
+                    "championnat. Supprimez le calendrier (ou créez une nouvelle édition).",
+                )
+        if fmt == CompetitionFormat.GROUPS_KNOCKOUT:
+            groups, qualifiers = cleaned.get("groups_count"), cleaned.get("group_qualifiers")
+            wildcards = cleaned.get("group_wildcards") or 0
+            if groups and qualifiers is not None:
+                if wildcards > groups:
+                    self.add_error("group_wildcards", "Il ne peut pas y avoir plus de repêchés que de groupes.")
+                if groups * qualifiers + wildcards < 2:
+                    self.add_error("group_qualifiers", "Il faut au moins 2 qualifiés au total.")
+        return cleaned
 
 
 class DivisionForm(BootstrapFormMixin, forms.ModelForm):

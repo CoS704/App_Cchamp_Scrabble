@@ -11,6 +11,11 @@ urlpatterns = [
         views.ScheduleGenerateView.as_view(),
         name="generate",
     ),
+    path(
+        "ronde-suivante/<int:division_id>/",
+        views.SwissNextRoundView.as_view(),
+        name="swiss_next",
+    ),
     path("<int:pk>/reprogrammer/", views.MatchRescheduleView.as_view(), name="reschedule"),
     path("<int:pk>/reporter/", views.MatchPostponeView.as_view(), name="postpone"),
     path("<int:pk>/annuler/", views.MatchCancelView.as_view(), name="cancel"),

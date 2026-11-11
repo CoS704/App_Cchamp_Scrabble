@@ -24,6 +24,7 @@ _SETTINGS_COPY_FIELDS = [
     "points_forfeit_win", "points_forfeit_loss",
     "forfeit_score_for", "forfeit_score_against",
     "primary_tiebreak", "round_robin_legs",
+    "competition_format", "groups_count", "group_qualifiers", "group_wildcards", "swiss_rounds",
     "result_entry_policy", "result_confirmation_required", "double_entry_auto_confirm",
     "late_match_threshold_days",
     "finals_enabled", "finals_qualifiers_count", "finals_format", "finals_third_place",
@@ -32,12 +33,15 @@ _SETTINGS_COPY_FIELDS = [
 
 
 def _final_standing_rows(championship, division):
-    from competition.models import Phase
+    from competition.services.phases import standings_phases
     from rankings.services import compute_standings
 
-    phase = Phase.objects.filter(
-        championship=championship, division=division, kind=PhaseKind.LEAGUE
-    ).first()
+    # Seuls un championnat ou un suisse ont un classement final unique par
+    # division : un groupe ou un tableau d'élimination n'en ont pas.
+    phase = next(
+        (p for p in standings_phases(championship, division) if p.kind in (PhaseKind.LEAGUE, PhaseKind.SWISS)),
+        None,
+    )
     if not phase:
         return []
     snapshot = compute_standings(championship=championship, division=division, phase=phase)

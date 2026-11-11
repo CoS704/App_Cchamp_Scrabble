@@ -5,7 +5,8 @@ from django.views.decorators.cache import never_cache
 from django.views.generic import TemplateView
 
 from championships.mixins import ChampionshipScopedMixin
-from core.enums import ChampionshipStatus, MatchStatus, PhaseKind
+from competition.services.phases import standings_phase_for
+from core.enums import ChampionshipStatus, MatchStatus
 from core.permissions import ChampionshipAdminRequiredMixin, is_global_admin
 
 from .services import admin_dashboard_context, player_dashboard_context
@@ -68,7 +69,7 @@ class SimulationView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         from analytics.services import movement_probabilities
-        from competition.models import Match, Phase
+        from competition.models import Match
 
         context = super().get_context_data(**kwargs)
         participation = self.get_participation()
@@ -76,11 +77,7 @@ class SimulationView(LoginRequiredMixin, TemplateView):
         if not participation:
             return context
 
-        phase = Phase.objects.filter(
-            championship=participation.championship,
-            division=participation.division,
-            kind=PhaseKind.LEAGUE,
-        ).first()
+        phase = standings_phase_for(participation)
         context["phase"] = phase
         context["probabilities"] = movement_probabilities(participation)
 

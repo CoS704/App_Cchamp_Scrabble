@@ -7,7 +7,7 @@ from django.views.generic import ListView
 
 from audit.services import log_action
 from championships.mixins import ChampionshipScopedMixin
-from core.enums import AuditAction, MatchStatus, ResultStatus
+from core.enums import AuditAction, CompetitionFormat, MatchStatus, ResultStatus
 
 RESULT_STATUS_FILTER_CHOICES = [
     ("PENDING", "En attente (soumis/confirmé)"),
@@ -30,12 +30,8 @@ from .services.counts import participation_match_counts
 from .services.daily_limit import match_is_late, next_opponent_hidden
 from .services.match import cancel_match, declare_forfeit, postpone_match, reschedule_match
 from .services.result import participation_for_user, reject_result, submit_result
-from .services.scheduling import (
-    ACTIVE_PARTICIPATION_STATUSES,
-    expected_match_count,
-    expected_matchday_count,
-    generate_schedule,
-)
+from .services.scheduling import ACTIVE_PARTICIPATION_STATUSES, format_plan, generate_schedule
+from .services.swiss import generate_next_swiss_round, swiss_status
 
 
 class CalendarView(ChampionshipScopedMixin, ChampionshipAdminRequiredMixin, ListView):
@@ -71,7 +67,7 @@ class CalendarView(ChampionshipScopedMixin, ChampionshipAdminRequiredMixin, List
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        legs = self.championship.settings.round_robin_legs
+        settings_obj = self.championship.settings
         # Une seule requête agrégée pour toutes les divisions plutôt que 4
         # requêtes par division (§56).
         divisions = list(
@@ -89,8 +85,14 @@ class CalendarView(ChampionshipScopedMixin, ChampionshipAdminRequiredMixin, List
         )
         for division in divisions:
             division.has_schedule = division.total_count > 0
-            division.expected_matches = expected_match_count(division.n_players, legs)
-            division.expected_matchdays = expected_matchday_count(division.n_players, legs)
+            plan = format_plan(settings_obj, division.n_players)
+            division.expected_matches = plan["matches"]
+            division.expected_matchdays = plan["matchdays"]
+            division.plan_summary = plan["summary"]
+            if settings_obj.competition_format == CompetitionFormat.SWISS:
+                division.swiss = swiss_status(self.championship, division)
+        context["competition_format"] = settings_obj.competition_format
+        context["format_label"] = settings_obj.get_competition_format_display()
         context["divisions"] = divisions
         context["status_choices"] = MatchStatus.choices
         context["result_status_choices"] = RESULT_STATUS_FILTER_CHOICES
@@ -107,22 +109,35 @@ class ScheduleGenerateView(ChampionshipScopedMixin, ChampionshipAdminRequiredMix
     def get_division(self):
         return get_object_or_404(self.championship.divisions, pk=self.kwargs["division_id"])
 
-    def get(self, request, *args, **kwargs):
-        division = self.get_division()
+    def build_context(self, division, form):
         n_players = division.participations.filter(
             status__in=ACTIVE_PARTICIPATION_STATUSES
         ).count()
-        legs = self.championship.settings.round_robin_legs
-        context = {
+        settings_obj = self.championship.settings
+        plan = format_plan(settings_obj, n_players)
+        fmt = settings_obj.competition_format
+        return {
             "championship": self.championship,
             "division": division,
             "n_players": n_players,
-            "expected_matches": expected_match_count(n_players, legs),
-            "expected_matchdays": expected_matchday_count(n_players, legs),
+            "expected_matches": plan["matches"],
+            "expected_matchdays": plan["matchdays"],
+            "plan_summary": plan["summary"],
+            "competition_format": fmt,
+            "format_label": settings_obj.get_competition_format_display(),
             "has_existing": Match.objects.filter(division=division).exists(),
-            "form": ScheduleGenerateForm(),
+            "form": form,
         }
-        return render(request, self.template_name, context)
+
+    def get(self, request, *args, **kwargs):
+        division = self.get_division()
+        if self.championship.settings.competition_format == CompetitionFormat.KNOCKOUT:
+            messages.info(
+                request,
+                "L'élimination directe n'a pas de calendrier : générez le tableau depuis cette page.",
+            )
+            return redirect("finals:list", slug=self.championship.slug)
+        return render(request, self.template_name, self.build_context(division, ScheduleGenerateForm()))
 
     def post(self, request, *args, **kwargs):
         division = self.get_division()
@@ -139,9 +154,14 @@ class ScheduleGenerateView(ChampionshipScopedMixin, ChampionshipAdminRequiredMix
             except ValidationError as exc:
                 form.add_error(None, exc)
             else:
+                fmt = self.championship.settings.competition_format
                 log_action(
                     actor=request.user,
-                    action=AuditAction.SCHEDULE_GENERATED,
+                    action=(
+                        AuditAction.GROUPS_DRAWN if fmt == CompetitionFormat.GROUPS_KNOCKOUT
+                        else AuditAction.SWISS_ROUND_GENERATED if fmt == CompetitionFormat.SWISS
+                        else AuditAction.SCHEDULE_GENERATED
+                    ),
                     championship=self.championship,
                     request=request,
                     changes={"division": division.name, "matches_created": len(matches)},
@@ -150,20 +170,26 @@ class ScheduleGenerateView(ChampionshipScopedMixin, ChampionshipAdminRequiredMix
                     request, f"Calendrier généré pour {division.name} : {len(matches)} match(s)."
                 )
                 return redirect("competition:list", slug=self.championship.slug)
-        n_players = division.participations.filter(
-            status__in=ACTIVE_PARTICIPATION_STATUSES
-        ).count()
-        legs = self.championship.settings.round_robin_legs
-        context = {
-            "championship": self.championship,
-            "division": division,
-            "n_players": n_players,
-            "expected_matches": expected_match_count(n_players, legs),
-            "expected_matchdays": expected_matchday_count(n_players, legs),
-            "has_existing": Match.objects.filter(division=division).exists(),
-            "form": form,
-        }
-        return render(request, self.template_name, context)
+        return render(request, self.template_name, self.build_context(division, form))
+
+
+class SwissNextRoundView(ChampionshipScopedMixin, ChampionshipAdminRequiredMixin, View):
+    """Génère la ronde suivante du système suisse d'une division."""
+
+    def post(self, request, *args, **kwargs):
+        division = get_object_or_404(self.championship.divisions, pk=kwargs["division_id"])
+        try:
+            matches = generate_next_swiss_round(championship=self.championship, division=division)
+        except ValidationError as exc:
+            messages.error(request, "; ".join(exc.messages))
+        else:
+            log_action(
+                actor=request.user, action=AuditAction.SWISS_ROUND_GENERATED,
+                championship=self.championship, request=request,
+                changes={"division": division.name, "matches_created": len(matches)},
+            )
+            messages.success(request, f"Ronde suivante générée pour {division.name} : {len(matches)} match(s).")
+        return redirect("competition:list", slug=self.championship.slug)
 
 
 class MatchActionMixin(ChampionshipScopedMixin, ChampionshipAdminRequiredMixin):

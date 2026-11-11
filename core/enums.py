@@ -76,8 +76,17 @@ class PromotionOutcome(models.TextChoices):
     CHAMPION = "CHAMPION", "Champion"
 
 
+class CompetitionFormat(models.TextChoices):
+    LEAGUE = "LEAGUE", "Championnat (tous contre tous)"
+    GROUPS_KNOCKOUT = "GROUPS_KNOCKOUT", "Coupe du monde (groupes puis élimination directe)"
+    KNOCKOUT = "KNOCKOUT", "Élimination directe"
+    SWISS = "SWISS", "Système suisse"
+
+
 class PhaseKind(models.TextChoices):
     LEAGUE = "LEAGUE", "Phase de ligue"
+    GROUP = "GROUP", "Groupe"
+    SWISS = "SWISS", "Système suisse"
     SEMI_FINAL = "SEMI_FINAL", "Demi-finale"
     FINAL = "FINAL", "Finale"
     THIRD_PLACE = "THIRD_PLACE", "Petite finale"
@@ -224,6 +233,8 @@ class AuditAction(models.TextChoices):
     MATCH_CANCELLED = "MATCH_CANCELLED", "Match annulé"
     MATCH_FORFEIT_DECLARED = "MATCH_FORFEIT_DECLARED", "Forfait déclaré"
     BRACKET_GENERATED = "BRACKET_GENERATED", "Tableau final généré"
+    GROUPS_DRAWN = "GROUPS_DRAWN", "Groupes tirés"
+    SWISS_ROUND_GENERATED = "SWISS_ROUND_GENERATED", "Ronde suisse générée"
     TRANSITION_PROPOSED = "TRANSITION_PROPOSED", "Saison suivante proposée"
     TRANSITION_MOVE_ADJUSTED = "TRANSITION_MOVE_ADJUSTED", "Mouvement de transition ajusté"
     PLAYER_LOGIN_CREATED = "PLAYER_LOGIN_CREATED", "Accès joueur créé"

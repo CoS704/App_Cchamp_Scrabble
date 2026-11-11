@@ -40,6 +40,12 @@ class Phase(TimeStampedModel):
     order = models.PositiveSmallIntegerField("ordre", default=1)
     status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=PENDING)
     config = models.JSONField(default=dict, blank=True)
+    participants = models.ManyToManyField(
+        "participations.ChampionshipParticipation",
+        blank=True,
+        related_name="phases",
+        help_text="Joueurs de cette phase (groupe). Vide = tous les joueurs de la division.",
+    )
 
     class Meta:
         verbose_name = "phase"
